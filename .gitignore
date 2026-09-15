@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Node
+node_modules/
+*.log
+
+# Per-session model-call traces and cost summaries
+traces/
+
+# Resumable session snapshots
+sessions/
+
+# Candidate profiles shared across practice rounds
+candidates/

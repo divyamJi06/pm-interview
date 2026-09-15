@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PM Interview Prep</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --good: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  header h1 { font-size: 17px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 0; }
+  .hidden { display: none !important; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  label { font-size: 13px; color: var(--muted); display: block; margin: 12px 0 4px; }
+  input[type=text], textarea, select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  textarea:focus, input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 180px; }
+  .seg { display: flex; gap: 8px; }
+  .seg button {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+  }
+  .seg button .t { display: block; font-weight: 600; }
+  .seg button .d { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .seg button.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .prime {
+    margin-top: 16px;
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #0b1220;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .prime:disabled { opacity: .5; cursor: not-allowed; }
+
+  .progress { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .progress b { color: var(--text); font-weight: 600; }
+  .pips { display: flex; gap: 4px; }
+  .pip { width: 22px; height: 8px; border-radius: 3px; background: var(--border); }
+  .pip.done { background: var(--accent); }
+  .pip.now { background: var(--accent-2); }
+
+  #log { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; }
+  .chat { display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 92%; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .msg.ai { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg.ai.fu { border-left: 3px solid var(--warn); }
+  .msg.me { align-self: flex-end; background: var(--panel-2); border: 1px solid var(--border); }
+  .msg .tag { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
+  .msg.ai.fu .tag { color: var(--warn); }
+
+  .feedback {
+    align-self: stretch;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: #16233b;
+    padding: 12px 14px;
+    font-size: 13px;
+  }
+  .feedback .h { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
+  .feedback .verdict { font-weight: 700; margin-bottom: 6px; }
+  .v-strong { color: var(--good); } .v-developing { color: var(--warn); } .v-weak { color: var(--bad); }
+  .feedback dl { margin: 6px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12px; }
+  .feedback dt { color: var(--muted); } .feedback dd { margin: 0; }
+  .feedback ul { margin: 6px 0 0; padding-left: 18px; }
+  .feedback .gf { color: var(--good); } .feedback .rf { color: var(--bad); }
+
+  .banner {
+    align-self: stretch;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    background: #101d31;
+  }
+  .banner b { color: var(--text); }
+
+  .inputbar {
+    position: sticky;
+    bottom: 0;
+    background: var(--bg);
+    padding: 12px 0 16px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+  .inputbar textarea { flex: 1; resize: none; max-height: 160px; }
+  .inputbar button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #0b1220;
+    font-weight: 700;
+    cursor: pointer;
+    height: 42px;
+  }
+  .inputbar button:disabled { opacity: .5; cursor: not-allowed; }
+
+  .report { line-height: 1.6; }
+  .report .big { font-size: 16px; font-weight: 700; margin: 4px 0 10px; }
+  .report h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 6px; }
+  .report ul { margin: 4px 0 0; padding-left: 20px; }
+  .stage-line { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .stage-line .nm { font-weight: 600; }
+  .stage-line .v { font-weight: 700; }
+  .stage-line + p.summ { margin: 6px 0 14px; font-size: 13px; color: var(--muted); }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+
+  .error { border: 1px solid var(--bad); color: var(--bad); background: #2a1620; border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-bottom: 12px; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  .tabs { display: flex; gap: 8px; margin: 0 0 16px; flex-wrap: wrap; }
+  .tabs button {
+    flex: 1; min-width: 130px; padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--panel-2);
+    color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .tabs button.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+  .trace-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .trace-grid { grid-template-columns: 1fr; } }
+  .trace-grid .list { display: flex; flex-direction: column; gap: 8px; max-height: 78vh; overflow: auto; }
+  .titem {
+    display: flex; flex-direction: column; gap: 2px; text-align: left;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; cursor: pointer; font: inherit;
+  }
+  .titem.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .titem .t { font-weight: 600; font-size: 13px; color: var(--text); }
+  .titem .d { font-size: 12px; color: var(--muted); }
+
+  .chiprow { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .chip { display: inline-block; background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 12px; color: var(--muted); }
+  .chip b { color: var(--text); }
+
+  .hl { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 20px 0 10px; }
+
+  .tl { display: flex; flex-direction: column; gap: 14px; }
+  .tl-entry { display: flex; gap: 10px; }
+  .tl-index { width: 24px; flex: 0 0 24px; font-size: 10px; color: var(--muted); padding-top: 12px; text-align: center; }
+  .tl-body { flex: 1; min-width: 0; }
+  .tl-wrap { display: flex; flex-direction: column; gap: 10px; user-select: none; }
+
+  .note { border-left: 3px solid var(--accent-2); padding-left: 10px; font-size: 12px; color: var(--muted); }
+  .p-dir-fu { color: var(--warn); } .p-dir-nq { color: var(--accent); }
+  .p-dir-ns, .p-dir-end { color: var(--good); }
+
+  details.call { border: 1px solid var(--border); border-radius: 8px; padding: 2px 12px; font-size: 12px; margin-bottom: 6px; background: var(--panel-2); }
+  details.call summary { cursor: pointer; color: var(--text); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 7px 0; }
+  details.call pre { background: #0b1220; border-radius: 6px; padding: 10px; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 11px; }
+  .ok { color: var(--good); } .fail { color: var(--bad); }
+  details.call .out { margin: 8px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+
+  .costrow { display: flex; align-items: center; gap: 10px; font-size: 12px; margin: 6px 0; }
+  .costrow .nm { width: 210px; flex: 0 0 auto; color: var(--muted); }
+  .costrow .track { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .costrow .track > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .costrow .amt { width: 84px; flex: 0 0 auto; text-align: right; color: var(--text); }
+
+  .metatab { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .metatab th, .metatab td { border-bottom: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  .metatab th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+  .metatab .num { text-align: right; }
+  .delta { color: var(--accent); }
+
+  .diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .diff-grid { grid-template-columns: 1fr; } }
+  .diff-col { min-width: 0; }
+  .diff-sub { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 4px 0 8px; }
+  .diff-rows { max-height: 70vh; overflow: auto; padding-right: 4px; }
+  .drow { display: flex; gap: 8px; padding: 5px 8px; border-bottom: 1px dashed rgba(148,163,184,.2); font-size: 12px; line-height: 1.45; }
+  .drow .dx { width: 22px; flex: none; color: var(--muted); font-size: 10px; padding-top: 2px; }
+  .drow .dt { flex: 1; min-width: 0; word-break: break-word; color: var(--muted); }
+  .drow.same .dt { color: var(--muted); }
+  .drow.diff { background: rgba(251,191,36,.1); border-left: 3px solid var(--warn); }
+  .drow.diff .dt { color: var(--text); }
+  .drow.diff .dx { color: var(--warn); font-weight: 700; }
+  .legend { font-size: 11px; color: var(--muted); margin: 8px 0 2px; }
+  .legend .s { display: inline-block; width: 10px; height: 10px; margin: 0 4px 0 10px; vertical-align: -1px; background: rgba(251,191,36,.3); border-left: 2px solid var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PM Interview Prep</h1>
+  <div class="sub" id="sessionInfo"></div>
+</header>
+
+<main class="wrap">
+  <nav class="tabs" id="tabs">
+    <button class="on" data-view="interview">Interview</button>
+    <button data-view="review">Review sessions</button>
+    <button data-view="diff">Diff sessions</button>
+  </nav>
+
+  <div id="view-interview">
+    <div id="setup" class="card">
+      <h2>Set up your interview</h2>
+      <div class="seg" id="modeSeg">
+        <button data-v="mock" class="on"><span class="t">Full mock interview</span><span class="d">Greeting &#8594; Behavioral &#8594; Estimation &#8594; Product design &#8594; Case study &#8594; Strategy &#8594; Execution metrics &#8594; Technical. Feedback withheld until stage boundaries.</span></button>
+        <button data-v="practice"><span class="t">Practice rounds</span><span class="d">One stage per round. The candidate profile carries across rounds, and a final debrief runs once every gradeable stage is covered.</span></button>
+      </div>
+      <div class="row">
+        <div>
+          <label for="candSel">Candidate (practice rounds)</label>
+          <select id="candSel"><option value="">New candidate</option></select>
+        </div>
+        <div>
+          <label for="stageSel">Stage (practice mode only)</label>
+          <select id="stageSel"></select>
+        </div>
+      </div>
+      <div id="candNewFields">
+        <div class="row">
+          <div>
+            <label for="targetRole">Target role / level (optional)</label>
+            <input type="text" id="targetRole" placeholder="e.g. Senior PM, B2B SaaS">
+          </div>
+          <div>
+            <label>Feedback mode</label>
+            <div class="seg" id="feedbackSeg">
+              <button data-v="full" class="on"><span class="t">Learn</span><span class="d">Feedback after every answer</span></button>
+              <button data-v="simulation"><span class="t">Simulation</span><span class="d">Round verdict only at the end</span></button>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <label for="resumeText">Paste your resume / background (optional)</label>
+          <textarea id="resumeText" rows="6" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font:inherit;resize:vertical" placeholder="Paste your resume, LinkedIn summary, or background so the interviewer's profile agent has more context about you. Applied when you create a candidate."></textarea>
+          <div class="muted" style="font-size:12px;margin-top:4px">Seeds the candidate profile. Kept to the first 8,000 characters.</div>
+        </div>
+      </div>
+      <div id="candPicked" class="hidden" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <label>Candidate progress</label>
+        <div class="chiprow" id="candInfo" style="margin:4px 0 0"></div>
+        <div class="muted" style="font-size:12px;margin-top:6px">This round continues the candidate's profile — the interviewer sees notes from earlier rounds. Target role and resume come from the candidate.</div>
+        <div id="candDebriefBox" class="hidden" style="margin-top:8px"></div>
+      </div>
+      <button class="prime" id="startBtn">Start interview</button>
+      <div id="resumeBox" class="hidden" style="margin-top:18px;border-top:1px solid var(--border);padding-top:16px">
+        <div class="row">
+          <div style="flex:1">
+            <label for="resumeSel">Resume an interrupted session</label>
+            <select id="resumeSel"></select>
+          </div>
+          <div style="flex:0 0 auto; display:flex; align-items:flex-end">
+            <button id="resumeBtn" class="prime" style="margin:0; width:auto; padding:10px 18px">Resume</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="errorBox" class="error hidden"></div>
+
+    <div id="session" class="hidden">
+      <div class="card" style="padding:12px 18px">
+        <div class="progress">
+          <span id="pStage"></span>
+          <span id="pQ"></span>
+          <span id="pF"></span>
+          <span class="pips" id="pPips"></span>
+        </div>
+      </div>
+      <div id="log"></div>
+      <div class="inputbar">
+        <textarea id="answer" rows="2" placeholder="Type your answer here… Enter to send"></textarea>
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+
+    <div id="report" class="card report hidden"></div>
+
+    <div id="doneMsg" class="muted hidden" style="text-align:center;padding:24px">
+      Session finished. <a href="/" style="color:var(--accent)" onclick="location.reload()">Start another</a>
+    </div>
+  </div>
+
+  <div id="view-review" class="view hidden">
+    <div class="trace-grid">
+      <div class="card" id="traceList" style="margin:0">
+        <h2>Sessions</h2>
+        <div class="list"><div class="muted">Loading sessions…</div></div>
+      </div>
+      <div class="card" id="traceDetail">
+        <h2>Analysis</h2>
+        <div class="muted">Select a session on the left to analyse it.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-diff" class="view hidden">
+    <div class="card">
+      <h2>Compare two sessions</h2>
+      <div class="row">
+        <div>
+          <label for="diffA">Session A</label>
+          <select id="diffA"></select>
+        </div>
+        <div>
+          <label for="diffB">Session B</label>
+          <select id="diffB"></select>
+        </div>
+        <div style="flex:0 0 auto; display:flex; align-items:flex-end">
+          <button class="prime" id="diffBtn" style="margin:0; width:auto; padding:10px 18px">Compare</button>
+        </div>
+      </div>
+    </div>
+    <div id="diffOut"><div class="muted">Pick two sessions and hit Compare.</div></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const state = { sessionId: null, mode: 'mock', busy: false, awaiting: 'setup', candidateId: null, feedback: 'full', candidates: [] };
+
+  const VERDICT_CLASS = { strong: 'v-strong', developing: 'v-developing', weak: 'v-weak' };
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  function addMsg(cls, html, tag) {
+    const m = document.createElement('div');
+    m.className = 'msg ' + cls;
+    if (tag) {
+      const t = document.createElement('div');
+      t.className = 'tag';
+      t.textContent = tag;
+      m.appendChild(t);
+    }
+    m.appendChild(Object.assign(document.createElement('span'), { innerHTML: html }));
+    $('log').appendChild(m);
+    scrollBottom();
+  }
+
+  function addBanner(html) {
+    const b = document.createElement('div');
+    b.className = 'banner';
+    b.innerHTML = html;
+    $('log').appendChild(b);
+    scrollBottom();
+  }
+
+  function addFeedback(judge, tag) {
+    if (!judge) return;
+    const f = document.createElement('div');
+    f.className = 'feedback';
+    let html = `<div class="h">${esc(tag || 'Judge feedback')}</div>`;
+    if (judge.overall_verdict) {
+      html += `<div class="verdict ${VERDICT_CLASS[judge.overall_verdict] || ''}">Verdict: ${esc(judge.overall_verdict)}</div>`;
+    }
+    if (judge.summary) html += `<div>${esc(judge.summary)}</div>`;
+    if (judge.dimension_scores) {
+      html += '<dl>';
+      for (const [k, v] of Object.entries(judge.dimension_scores)) html += `<dt>${esc(k)}</dt><dd>${v}/5</dd>`;
+      html += '</dl>';
+    }
+    if (judge.checklist_hits) {
+      html += '<dl>';
+      const names = Object.keys(judge.checklist_hits);
+      html += `<dt>process steps hit</dt><dd>${names.filter((k) => judge.checklist_hits[k]).length}/${names.length}</dd>`;
+      html += '</dl>';
+    }
+    if (judge.green_flags_hit && judge.green_flags_hit.length) {
+      html += '<ul class="gf">' + judge.green_flags_hit.map((g) => `<li>${esc(g)}</li>`).join('') + '</ul>';
+    }
+    if (judge.red_flags_hit && judge.red_flags_hit.length) {
+      html += '<ul class="rf">' + judge.red_flags_hit.map((r) => `<li>${esc(r)}</li>`).join('') + '</ul>';
+    }
+    f.innerHTML = html;
+    $('log').appendChild(f);
+    scrollBottom();
+  }
+
+  function scrollBottom() {
+    $('session').scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }
+
+  function setBusy(b) {
+    state.busy = b;
+    $('sendBtn').disabled = b;
+    $('answer').disabled = b;
+  }
+
+  function showError(msg) {
+    const box = $('errorBox');
+    box.textContent = msg;
+    box.classList.remove('hidden');
+  }
+
+  function clearError() { $('errorBox').classList.add('hidden'); }
+
+  function renderProgress(payload) {
+    const st = payload.stage;
+    const p = payload.stageProgress || {};
+    $('pStage').innerHTML = `Stage: <b>${esc(st.name)}</b> (${st.index + 1}/${st.total})`;
+    $('pQ').innerHTML = `Questions: <b>${p.questionsAsked ?? 0}/${p.minQuestions ?? 0}</b>`;
+    $('pF').innerHTML = `Follow-ups: <b>${p.followUpsUsed ?? 0}</b>`;
+
+    const info = [];
+    info.push(`mode: ${payload.mode}`);
+    if (payload.candidate && payload.candidate.id) info.push('candidate: ' + payload.candidate.id.slice(0, 6));
+    if (payload.sessionId) info.push(payload.sessionId.slice(0, 8));
+    $('sessionInfo').textContent = info.join(' · ');
+
+    const pips = $('pPips');
+    pips.innerHTML = '';
+    for (let i = 0; i < st.total; i++) {
+      const span = document.createElement('span');
+      span.className = 'pip ' + (i < st.index ? 'done' : i === st.index ? 'now' : '');
+      pips.appendChild(span);
+    }
+  }
+
+  function askQuestion(payload) {
+    renderProgress(payload);
+    const q = payload.question;
+    const isFu = payload.state === 'follow_up' || (q && q.isFollowUp);
+    addMsg(isFu ? 'ai fu' : 'ai', '#' + q.text, isFu ? 'follow-up' : 'stage · ' + payload.stage.name);
+  }
+
+  function presentReply(payload) {
+    clearError();
+    if (payload.state === 'follow_up') {
+      state.awaiting = 'answer';
+      if (payload.feedback) addFeedback(payload.feedback);
+      askQuestion(payload);
+    } else if (payload.state === 'question') {
+      state.awaiting = 'answer';
+      if (payload.feedback) addFeedback(payload.feedback);
+      askQuestion(payload);
+    } else if (payload.state === 'clarify_reply') {
+      state.awaiting = 'answer';
+      renderProgress(payload);
+      addMsg('ai fu', esc(payload.clarifyAnswer), 'interviewer · clarification');
+      addBanner(
+        payload.wrapUp
+          ? 'The interviewer would like your answer now — go ahead and answer <b>' + esc(payload.question.text) + '</b>'
+          : 'Clarifying question noted — now answer <b>' + esc(payload.question.text) + '</b>'
+      );
+    } else if (payload.state === 'transition') {
+      const t = payload.transition;
+      let html = `<b>Stage complete: ${esc(t.from)}.</b> Moving on to <b>${esc(t.to)}</b>.`;
+      if (t.stageVerdict) {
+        html += `<br>${esc(t.stageVerdict.summary || '')}`;
+      }
+      addBanner(html);
+      setTimeout(() => askQuestion(payload), 350);
+    } else if (payload.state === 'final_report') {
+      state.awaiting = 'final_report';
+      $('session').classList.add('hidden');
+      const r = payload.report;
+      if (r && r.report) { renderMockReport(r.report, r.stageVerdicts); }
+      else { renderRoundReport(r, payload.candidate, payload.debrief); }
+      $('doneMsg').classList.remove('hidden');
+      $('report').classList.remove('hidden');
+    }
+  }
+
+  function verdictPill(v) {
+    return `<span class="pill ${VERDICT_CLASS[v] || ''}">${esc(v || '—')}</span>`;
+  }
+
+  function renderTranscriptEntry(e) {
+    if (e.type === 'question') {
+      addMsg(e.isFollowUp ? 'ai fu' : 'ai', '#' + esc(e.text), e.isFollowUp ? 'follow-up' : 'stage · ' + esc(e.stage));
+    } else if (e.type === 'clarify') {
+      addMsg('me', esc(e.candidateQuestion || ''), 'you · clarifying question');
+      addMsg('ai fu', esc(e.interviewerAnswer || ''), 'interviewer · clarification');
+    } else if (e.type === 'answer') {
+      addMsg('me', esc(e.text));
+    } else if (e.type === 'judge') {
+      addFeedback(e, 'Judge · ' + esc(e.stage));
+    } else if (e.type === 'stage_verdict') {
+      const v = e.verdict || {};
+      addBanner(`<b>Stage complete: ${esc(e.stage)}.</b> ${verdictPill(v.stage_verdict)}<br>${esc(v.summary || '')}`);
+    }
+  }
+
+  function loadResumeOptions(sessions) {
+    const sel = $('resumeSel');
+    sel.innerHTML = '';
+    const valid = (sessions || []).filter((s) => s.awaiting === 'answer');
+    if (!valid.length) {
+      $('resumeBox').classList.add('hidden');
+      return;
+    }
+    for (const s of valid) {
+      const label = `${s.mode} · ${s.practiceStage || 'full mock'} · ${s.answers} answers · ${new Date(s.startedAt).toLocaleString()}`;
+      const opt = document.createElement('option');
+      opt.value = s.sessionId;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    }
+    $('resumeBox').classList.remove('hidden');
+  }
+
+  async function resumeSession() {
+    const id = $('resumeSel').value;
+    if (!id) return;
+    clearError();
+    setBusy(true);
+    try {
+      const res = await fetch('/api/sessions/' + encodeURIComponent(id));
+      const payload = await res.json();
+      if (!res.ok || payload.ok === false) throw new Error(payload.error || 'Failed to resume');
+      startFlow(payload, true);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderMockReport(report, stageVerdicts) {
+    const el = $('report');
+    const resources = report.recommended_resources || [];
+    el.innerHTML = `
+      <div class="big">Overall verdict: ${verdictPill(report.overall_verdict)}</div>
+      <div>${esc(report.summary || '')}</div>
+      <h3>Patterns across stages</h3>
+      <ul>${(report.cross_stage_patterns || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+      <h3>Top things to work on</h3>
+      <ul>${(report.top_things_to_work_on || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+      ${resources.length ? `
+        <h3>Recommended resources</h3>
+        <ul>${resources.map((r) => `<li><b>${esc(r.title || '')}</b>${r.type ? ` <span class="muted">(${esc(r.type)})</span>` : ''}${r.why ? ` — ${esc(r.why)}` : ''}</li>`).join('')}</ul>
+      ` : ''}
+      <h3>Per-stage results</h3>
+      ${(stageVerdicts || []).map((sv) => `
+        <div class="stage-line"><span class="nm">${esc(sv.stage)}</span><span class="v">${verdictPill(sv.verdict.stage_verdict)}</span></div>
+        <p class="summ">${esc(sv.verdict.summary || '')}${sv.verdict.strengths ? '<br>Strengths: ' + esc(sv.verdict.strengths.join(', ')) : ''}${sv.verdict.gaps ? '<br>Gaps: ' + esc(sv.verdict.gaps.join(', ')) : ''}</p>
+      `).join('')}
+    `;
+  }
+
+  function renderRoundReport(r, cand, debrief) {
+    const el = $('report');
+    const sv = (r.stageVerdicts || [])[0];
+    let html = '<div class="big">Round complete</div>';
+    if (sv) {
+      html += `
+        <div class="stage-line"><span class="nm">${esc(sv.stage)}</span><span class="v">${verdictPill(sv.verdict.stage_verdict)}</span></div>
+        <p class="summ">${esc(sv.verdict.summary || '')}</p>
+        ${sv.verdict.strengths && sv.verdict.strengths.length ? '<h3>Strengths</h3><ul>' + sv.verdict.strengths.map((s) => `<li>${esc(s)}</li>`).join('') + '</ul>' : ''}
+        ${sv.verdict.gaps && sv.verdict.gaps.length ? '<h3>Gaps</h3><ul>' + sv.verdict.gaps.map((g) => `<li>${esc(g)}</li>`).join('') + '</ul>' : ''}
+      `;
+    } else {
+      html += '<div class="muted">This stage was not graded.</div>';
+    }
+    if (cand) {
+      html += '<h3>Rounds progress</h3>';
+      html += `<div class="muted">Stages covered: <b>${esc(String(cand.coveredStages.length))}/${esc(String(cand.total))}</b></div>`;
+      if (!cand.done && cand.missing.length) {
+        html += '<ul>' + cand.missing.map((m) => `<li>${esc(m)}</li>`).join('') + '</ul>';
+      }
+      html += cand.done
+        ? '<div class="muted" style="color:var(--good)">All gradeable stages are covered — the candidate debrief is below.</div>'
+        : '<div class="muted">Start another round to keep building this candidate.</div>';
+    }
+    if (debrief && debrief.report) {
+      const report = debrief.report;
+      html += `
+        <h3>Candidate debrief</h3>
+        <div class="big">Overall verdict: ${verdictPill(report.overall_verdict)}</div>
+        <div>${esc(report.summary || '')}</div>
+        <h3>Patterns across stages</h3>
+        <ul>${(report.cross_stage_patterns || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+        <h3>Top things to work on</h3>
+        <ul>${(report.top_things_to_work_on || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+      `;
+      const recs = report.recommended_resources || [];
+      if (recs.length) {
+        html += '<h3>Recommended resources</h3><ul>' + recs.map((rr) => `<li><b>${esc(rr.title || '')}</b>${rr.type ? ` <span class="muted">(${esc(rr.type)})</span>` : ''}${rr.why ? ` — ${esc(rr.why)}` : ''}</li>`).join('') + '</ul>';
+      }
+    }
+    html += '<button class="prime" id="nextRoundBtn" style="margin-top:18px">Start next round</button>';
+    el.innerHTML = html;
+    $('nextRoundBtn').addEventListener('click', () => location.reload());
+  }
+
+  async function startFlow(payload, fromResume) {
+    $('setup').classList.add('hidden');
+    $('session').classList.remove('hidden');
+    $('report').classList.add('hidden');
+    $('doneMsg').classList.add('hidden');
+    $('log').innerHTML = '';
+    state.sessionId = payload.sessionId;
+    state.mode = payload.mode;
+    state.candidateId = (payload.candidate && payload.candidate.id) || null;
+    state.awaiting = 'answer';
+    if (fromResume && Array.isArray(payload.transcript)) {
+      for (const e of payload.transcript) renderTranscriptEntry(e);
+    }
+    askQuestion(payload);
+    $('answer').focus();
+  }
+
+  async function start() {
+    clearError();
+    setBusy(true);
+    const isNewCandidate = !state.candidateId;
+    const body = {
+      mode: state.mode,
+      stage: $('stageSel').value,
+      feedback: state.feedback,
+      targetRole: isNewCandidate ? $('targetRole').value.trim() : '',
+      resume: isNewCandidate ? $('resumeText').value.trim() : '',
+    };
+    if (state.candidateId) body.candidateId = state.candidateId;
+    try {
+      const res = await fetch('/api/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const payload = await res.json();
+      if (!res.ok || payload.ok === false) throw new Error(payload.error || 'Failed to start');
+      startFlow(payload);
+    } catch (err) {
+      showError(err.message);
+      $('setup').classList.remove('hidden');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function send() {
+    const ta = $('answer');
+    const text = ta.value.replace(/\s+$/g, '\n').trim();
+    if (!text || state.busy || !state.sessionId) return;
+    ta.value = '';
+    setBusy(true);
+    addMsg('me', text);
+    try {
+      const res = await fetch('/api/answer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: state.sessionId, answer: text }),
+      });
+      const payload = await res.json();
+      if (!res.ok || payload.ok === false) throw new Error(payload.error || 'Failed to submit');
+      presentReply(payload);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setBusy(false);
+      if (state.awaiting === 'answer') $('answer').focus();
+    }
+  }
+
+  
+
+  
+
+  
+
+  
+
+  const DECISION_CLASS = { follow_up: 'p-dir-fu', next_question: 'p-dir-nq', next_stage: 'p-dir-ns', end_interview: 'p-dir-end' };
+  const traceState = { list: [], data: null };
+  const VIEWS = ['interview', 'review', 'diff'];
+
+  function setView(name) {
+    for (const v of VIEWS) {
+      const el = $('view-' + v);
+      if (el) el.classList.toggle('hidden', v !== name);
+    }
+    for (const b of $('tabs').querySelectorAll('button')) b.classList.toggle('on', b.dataset.view === name);
+    if (name === 'review') loadTraceList(true);
+    if (name === 'diff') loadTraceList(true);
+  }
+
+  function fmtDur(sec) {
+    if (!Number.isFinite(sec) || sec == null) return '—';
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return m ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  function fmtMoney(c) {
+    if (c == null) return '—';
+    return '$' + Number(c).toFixed(4);
+  }
+
+  async function loadTraceList(refresh) {
+    try {
+      const res = await fetch('/api/traces');
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Failed to load traces');
+      traceState.list = data.traces || [];
+      renderTraceList();
+      renderDiffPickers();
+    } catch (err) {
+      $('traceList').querySelector('.list').innerHTML = '<div class="error">' + esc(err.message) + '</div>';
+    }
+  }
+
+  function renderTraceList() {
+    const box = $('traceList');
+    const wrap = box.querySelector('.list');
+    wrap.innerHTML = '';
+    if (!traceState.list.length) {
+      wrap.innerHTML = '<div class="muted">No traced sessions yet. Finish an interview (with tracing enabled) and it will show up here.</div>';
+      return;
+    }
+    for (const t of traceState.list) {
+      const b = document.createElement('button');
+      b.className = 'titem';
+      b.dataset.id = t.sessionId;
+      const verdict = t.verdict ? ` · <span class="${VERDICT_CLASS[t.verdict] || ''}">${esc(t.verdict)}</span>` : '';
+      const name = t.practiceStage || 'full mock';
+      b.innerHTML = `
+        <span class="t">${esc(t.mode)} · ${esc(name)}</span>
+        <span class="d">${esc(new Date(t.startedAt).toLocaleString())}</span>
+        <span class="d">${esc(t.calls || 0)} calls · ${fmtMoney(t.costUsd)} · ${fmtDur(t.durationSec)}${verdict}</span>`;
+      b.addEventListener('click', () => selectTrace(t.sessionId));
+      wrap.appendChild(b);
+    }
+  }
+
+  async function selectTrace(id) {
+    for (const b of $('traceList').querySelectorAll('.titem')) b.classList.remove('on');
+    const box = $('traceDetail');
+    box.innerHTML = '<h2>Analysis</h2><div class="muted">Loading session…</div>';
+    try {
+      const res = await fetch('/api/traces/' + encodeURIComponent(id));
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Failed to load session');
+      traceState.data = data;
+      for (const b of $('traceList').querySelectorAll('.titem')) {
+        b.classList.toggle('on', b.dataset.id === id);
+      }
+      renderTraceDetail();
+    } catch (err) {
+      box.innerHTML = '<h2>Analysis</h2><div class="error">' + esc(err.message) + '</div>';
+    }
+  }
+
+  function renderTraceDetail() {
+    const d = traceState.data;
+    const box = $('traceDetail');
+    const st = d.stats || {};
+    const info = d.info || {};
+    const costTotals = (d.costs && d.costs.totals) || {};
+    const chip = (k, val) => `<span class="chip">${esc(k)}: <b>${esc(String(val))}</b></span>`;
+    let chips = [
+      chip('calls', d.calls.length),
+      chip('input tk', (costTotals.inputTokens || 0).toLocaleString()),
+      chip('output tk', (costTotals.outputTokens || 0).toLocaleString()),
+      chip('cost', fmtMoney(costTotals.costUsd)),
+      chip('questions', st.questions),
+      chip('answers', st.answers),
+      chip('follow-ups asked', st.followUpsAsked),
+      chip('clarifications', st.clarifications),
+      chip('avg answer', st.avgAnswerChars + ' chars'),
+    ];
+    for (const [k, v] of Object.entries(st.decisions || {})) chips.push(chip('decision:' + k, v));
+    for (const [k, v] of Object.entries(st.verdicts || {})) chips.push(chip('verdict:' + k, v));
+    const duration = d.info.startedAt
+      ? ((d.costs && d.costs.endedAt ? new Date(d.costs.endedAt) : new Date()) - new Date(d.info.startedAt)) / 1000
+      : null;
+
+    const pill = d.verdict ? ' ' + verdictPill(d.verdict) : '';
+    box.innerHTML = `
+      <h2 style="margin-bottom:10px">Session analysis</h2>
+      <div style="font-weight:700;font-size:15px">${esc(info.mode)} · ${esc(info.practiceStage || 'full mock')}${pill}</div>
+      <div class="muted" style="margin-top:4px">started ${esc(new Date(info.startedAt).toLocaleString())}${d.costs && d.costs.endedAt ? ' · ended ' + esc(new Date(d.costs.endedAt).toLocaleString()) : ''} · ${fmtDur(duration)}${d.costs ? ' · outcome ' + esc(d.costs.outcome) : ''}</div>
+      <div class="chiprow">${chips.join('')}</div>
+      <div class="hl">Timeline</div>
+      <div id="tlBox" class="tl"></div>
+      <div class="hl">Cost per role</div>
+      <div id="costBox"></div>
+      <div class="hl">Model calls <span class="muted">(click to expand prompt + output)</span></div>
+      <div id="callBox"></div>
+    `;
+    renderTimeline($('tlBox'), d.timeline, false);
+    renderCosts($('costBox'), d.calls);
+    renderCalls($('callBox'), d.calls);
+  }
+
+  function bubbleClass(type) {
+    if (type === 'answer') return 'msg me';
+    if (type === 'question') return 'msg ai';
+    if (type === 'clarify' || type === 'judge' || type === 'director') return 'feedback';
+    if (type === 'stage_verdict' || type === 'final_report') return 'banner';
+    return 'note';
+  }
+
+  function renderTimeline(container, timeline, compact) {
+    container.innerHTML = '';
+    if (!timeline.length) {
+      container.innerHTML = '<div class="muted">No graded turns captured.</div>';
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    timeline.forEach((e, i) => {
+      const row = document.createElement('div');
+      row.className = 'tl-entry';
+      const idx = document.createElement('div');
+      idx.className = 'tl-index';
+      idx.textContent = i + 1;
+      const body = document.createElement('div');
+      body.className = 'tl-body ' + bubbleClass(e.type);
+      let html = '';
+      if (e.type === 'question') {
+        html = `<div class="tag">question · ${esc(e.stage || '')}</div>${esc(e.text)}`;
+      } else if (e.type === 'answer') {
+        html = `<div class="tag">answer</div>${esc(e.text)}`;
+      } else if (e.type === 'clarify') {
+        html = `<div class="h">clarifying question · ${esc(e.stage || '')}</div>` +
+          `<div><b>Candidate asked:</b> ${esc(e.candidateQuestion || e.question || '')}</div>` +
+          (e.interviewerAnswer ? `<div style="margin-top:6px"><b>Interviewer:</b> ${esc(e.interviewerAnswer)}</div>` : '') +
+          (e.wrapUp ? `<div style="margin-top:6px"><b class="v-developing">Interviewer asked the candidate to answer now.</b></div>` : '');
+      } else if (e.type === 'judge') {
+        const dims = e.dimensions
+          ? Object.entries(e.dimensions).map(([k, vv]) => `<dt>${esc(k)}</dt><dd>${vv}/5</dd>`).join('')
+          : '';
+        const notes = e.checklist
+          ? `<dt>steps hit</dt><dd>${Object.values(e.checklist).filter(Boolean).length}/${Object.keys(e.checklist).length}</dd>`
+          : '';
+        html = `<div class="h">judge · ${esc(e.stage || '')}</div>` +
+          `<div class="verdict ${VERDICT_CLASS[e.verdict] || ''}">Verdict: ${esc(e.verdict || '—')}</div>` +
+          (e.summary ? `<div style="margin-top:4px">${esc(e.summary)}</div>` : '') +
+          ((dims || notes) ? `<dl>${dims}${notes}</dl>` : '') +
+          (e.green.length ? `<ul class="gf">${e.green.map((g) => `<li>${esc(g)}</li>`).join('')}</ul>` : '') +
+          (e.red.length ? `<ul class="rf">${e.red.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '');
+      } else if (e.type === 'director') {
+        html = `<div class="h">director · ${esc(e.stage || '')}</div>` +
+          `<div>Decision: <span class="pill ${DECISION_CLASS[e.decision] || ''}">${esc(e.decision || '—')}</span></div>` +
+          (e.followUpQuestion ? `<div style="margin-top:6px"><b>Follow-up:</b> ${esc(e.followUpQuestion)}</div>` : '') +
+          (e.reasoning ? `<div class="muted" style="margin-top:6px">${esc(e.reasoning)}</div>` : '');
+      } else if (e.type === 'profile') {
+        html = `Profile note · <i>${esc(e.text)}</i>`;
+      } else if (e.type === 'stage_verdict') {
+        html = `<b>Stage verdict · ${esc(e.stage || '')}</b> ${verdictPill(e.verdict)}<br>${esc(e.summary || '')}` +
+          (e.strengths.length ? `<br><b>Strengths:</b> ${esc(e.strengths.join(', '))}` : '') +
+          (e.gaps.length ? `<br><b>Gaps:</b> ${esc(e.gaps.join(', '))}` : '');
+      } else if (e.type === 'final_report') {
+        html = `<b>Final report</b> ${verdictPill(e.verdict)}<br>${esc(e.summary || '')}` +
+          (e.crossStagePatterns.length ? `<br><b>Patterns:</b> ${esc(e.crossStagePatterns.join(', '))}` : '') +
+          (e.topThingsToWorkOn.length ? `<br><b>Work on:</b> ${esc(e.topThingsToWorkOn.join(', '))}` : '') +
+          (e.recommendedResources.length ? `<br><b>Resources:</b> ${esc(e.recommendedResources.map((r) => r.title || '').join(', '))}` : '');
+      } else {
+        html = esc(String(e.text || e.label || '').slice(0, 200));
+      }
+      body.innerHTML = html;
+      row.appendChild(idx);
+      row.appendChild(body);
+      frag.appendChild(row);
+    });
+    container.appendChild(frag);
+  }
+
+  function renderCosts(container, calls) {
+    const by = {};
+    for (const c of calls) {
+      if (!by[c.label]) by[c.label] = { calls: 0, cost: 0, tkIn: 0, tkOut: 0 };
+      const b = by[c.label];
+      b.calls += 1;
+      b.cost += c.costUsd || 0;
+      b.tkIn += (c.usage && c.usage.inputTokens) || 0;
+      b.tkOut += (c.usage && c.usage.outputTokens) || 0;
+    }
+    const rows = Object.entries(by).sort((a, b) => b[1].cost - a[1].cost);
+    const maxCost = Math.max(1, ...rows.map(([, b]) => b.cost));
+    container.innerHTML = rows.length
+      ? rows
+          .map(([label, b]) => `<div class="costrow">
+            <span class="nm">${esc(label)} · ${b.calls} call${b.calls > 1 ? 's' : ''}</span>
+            <span class="track"><div style="width:${Math.round((b.cost / maxCost) * 100)}%"></div></span>
+            <span class="amt">${fmtMoney(b.cost)}</span>
+          </div>`)
+          .join('')
+      : '<div class="muted">No calls.</div>';
+  }
+
+  function renderCalls(container, calls) {
+    container.innerHTML = calls.length
+      ? calls
+          .map(
+            (c) => `<details class="call">
+            <summary>
+              <b>${String(c.seq).padStart(3, '0')}</b>
+              <span>${esc(c.label)}</span>
+              <span class="${c.success ? 'ok' : 'fail'}">${c.success ? 'ok' : 'FAIL'}</span>
+              <span>${fmtMoney(c.costUsd)}</span>
+              ${c.usage ? `<span>${(c.usage.inputTokens || 0).toLocaleString()}+${(c.usage.outputTokens || 0).toLocaleString()} tk · ${c.durationMs || 0}ms</span>` : ''}
+            </summary>
+            <pre>${esc(c.prompt || '(no prompt captured)')}</pre>
+            <div class="out">output</div>
+            <pre>${esc(c.outputText || '(no output)')}${c.error ? '\n\nERROR: ' + esc(c.error) : ''}</pre>
+          </details>`
+          )
+          .join('')
+      : '<div class="muted">No calls.</div>';
+  }
+
+  function renderDiffPickers() {
+    const selA = $('diffA');
+    const selB = $('diffB');
+    selA.innerHTML = '';
+    selB.innerHTML = '';
+    selA.appendChild(new Option('— pick session A —', ''));
+    selB.appendChild(new Option('— pick session B —', ''));
+    for (const t of traceState.list) {
+      const label = `${t.mode} · ${t.practiceStage || 'full mock'} · ${new Date(t.startedAt).toLocaleString()} · ${fmtMoney(t.costUsd)}`;
+      selA.appendChild(new Option(label, t.sessionId));
+      selB.appendChild(new Option(label, t.sessionId));
+    }
+    const n = traceState.list.length;
+    selA.selectedIndex = n >= 2 ? 2 : n === 1 ? 1 : 0;
+    selB.selectedIndex = n >= 1 ? 1 : 0;
+  }
+
+  function flatLine(e) {
+    if (e.type === 'question') return 'Q: ' + e.text;
+    if (e.type === 'answer') return 'A: ' + e.text.slice(0, 160);
+    if (e.type === 'clarify') return `CQ: ${e.candidateQuestion || ''} ⟶ ${e.interviewerAnswer || ''}`;
+    if (e.type === 'judge') return `J: ${e.verdict} | ${String(e.summary).slice(0, 140)}`;
+    if (e.type === 'director') return `D: ${e.decision}${e.followUpQuestion ? ' | ' + e.followUpQuestion.slice(0, 100) : ''}`;
+    if (e.type === 'profile') return 'P: ' + e.text;
+    if (e.type === 'stage_verdict') return `SV: ${e.verdict} | ${String(e.summary).slice(0, 100)}`;
+    if (e.type === 'final_report') return `FR: ${e.verdict} | ${String(e.summary).slice(0, 100)}`;
+    return 'O: ' + String(e.text || e.label || '').slice(0, 100);
+  }
+
+  async function runDiff() {
+    const a = $('diffA').value;
+    const b = $('diffB').value;
+    const box = $('diffOut');
+    if (!a || !b) {
+      box.innerHTML = '<div class="muted">Pick two sessions and hit Compare.</div>';
+      return;
+    }
+    box.innerHTML = '<div class="muted">Comparing…</div>';
+    try {
+      const [ra, rb] = await Promise.all([
+        fetch('/api/traces/' + encodeURIComponent(a)).then((r) => r.json()),
+        fetch('/api/traces/' + encodeURIComponent(b)).then((r) => r.json()),
+      ]);
+      if (ra.ok === false) throw new Error(ra.error);
+      if (rb.ok === false) throw new Error(rb.error);
+      renderDiff(ra, rb);
+    } catch (err) {
+      box.innerHTML = '<div class="error">' + esc(err.message) + '</div>';
+    }
+  }
+
+  function renderDiff(A, B) {
+    const ia = A.info || {};
+    const ib = B.info || {};
+    const ca = (A.costs && A.costs.totals) || {};
+    const cb = (B.costs && B.costs.totals) || {};
+    const sa = A.stats || {};
+    const sb = B.stats || {};
+
+    function row(label, aV, bV, fmt) {
+      const av = fmt ? fmt(aV) : String(aV == null ? '—' : aV);
+      const bv = fmt ? fmt(bV) : String(bV == null ? '—' : bV);
+      return `<tr><th>${esc(label)}</th><td class="num">${esc(av)}</td><td class="num">${esc(bv)}</td></tr>`;
+    }
+
+    const durA = A.info.startedAt ? (ca.endedAt ? (new Date(ca.endedAt) - new Date(ia.startedAt)) / 1000 : null) : null;
+    const durB = B.info.startedAt ? (cb.endedAt ? (new Date(cb.endedAt) - new Date(ib.startedAt)) / 1000 : null) : null;
+
+    const metaTable = `
+      <table class="metatab">
+        <tr><th></th><th class="num">A · ${esc(ia.practiceStage || 'full mock')}</th><th class="num">B · ${esc(ib.practiceStage || 'full mock')}</th></tr>
+        ${row('mode', ia.mode, ib.mode)}
+        ${row('duration', durA, durB, fmtDur)}
+        ${row('model calls', ca.calls, cb.calls)}
+        ${row('tokens (in+out)', (ca.inputTokens || 0) + '+' + (ca.outputTokens || 0), (cb.inputTokens || 0) + '+' + (cb.outputTokens || 0))}
+        ${row('cost', ca.costUsd, cb.costUsd, fmtMoney)}
+        ${row('questions', sa.questions, sb.questions)}
+        ${row('answers', sa.answers, sb.answers)}
+        ${row('follow-ups asked', sa.followUpsAsked, sb.followUpsAsked)}
+        ${row('clarifications', sa.clarifications, sb.clarifications)}
+        ${row('verdicts strong/dev/weak', `${sa.verdicts && sa.verdicts.strong || 0} / ${sa.verdicts && sa.verdicts.developing || 0} / ${sa.verdicts && sa.verdicts.weak || 0}`, `${sb.verdicts && sb.verdicts.strong || 0} / ${sb.verdicts && sb.verdicts.developing || 0} / ${sb.verdicts && sb.verdicts.weak || 0}`)}
+      </table>`;
+
+    const la = (A.timeline || []).map(flatLine);
+    const lb = (B.timeline || []).map(flatLine);
+    const max = Math.max(la.length, lb.length);
+    let rowsA = '';
+    let rowsB = '';
+    for (let i = 0; i < max; i++) {
+      const aLine = la[i] || '';
+      const bLine = lb[i] || '';
+      const same = aLine === bLine;
+      const cls = same ? 'same' : 'diff';
+      rowsA += `<div class="drow ${cls}"><span class="dx">${i + 1}</span><span class="dt">${esc(aLine || '·')}</span></div>`;
+      rowsB += `<div class="drow ${cls}"><span class="dx">${i + 1}</span><span class="dt">${esc(bLine || '·')}</span></div>`;
+    }
+
+    const box = $('diffOut');
+    box.innerHTML = `
+      <div class="card">
+        <h2>Summary</h2>
+        ${metaTable}
+      </div>
+      <div class="diff-grid">
+        <div class="diff-col">
+          <div class="diff-sub">${esc(new Date(ia.startedAt).toLocaleString())} · ${fmtMoney(ca.costUsd)}</div>
+          <div class="diff-rows">${rowsA}</div>
+        </div>
+        <div class="diff-col">
+          <div class="diff-sub">${esc(new Date(ib.startedAt).toLocaleString())} · ${fmtMoney(cb.costUsd)}</div>
+          <div class="diff-rows">${rowsB}</div>
+        </div>
+      </div>
+      <div class="legend"><span class="s"></span> aligned rows differ between the two sessions</div>
+    `;
+  }
+
+  function init() {
+    for (const btn of $('tabs').querySelectorAll('button')) {
+      btn.addEventListener('click', () => setView(btn.dataset.view));
+    }
+    $('diffBtn').addEventListener('click', runDiff);
+    $('resumeBtn').addEventListener('click', resumeSession);
+    for (const btn of $('modeSeg').querySelectorAll('button')) {
+      btn.addEventListener('click', () => {
+        $('modeSeg').querySelectorAll('button').forEach((b) => b.classList.remove('on'));
+        btn.classList.add('on');
+        state.mode = btn.dataset.v;
+        refreshModeFields();
+      });
+    }
+    for (const btn of $('feedbackSeg').querySelectorAll('button')) {
+      btn.addEventListener('click', () => {
+        $('feedbackSeg').querySelectorAll('button').forEach((b) => b.classList.remove('on'));
+        btn.classList.add('on');
+        state.feedback = btn.dataset.v;
+      });
+    }
+    $('candSel').addEventListener('change', () => selectCandidate($('candSel').value));
+    $('startBtn').addEventListener('click', start);
+    $('sendBtn').addEventListener('click', send);
+    const ta = $('answer');
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+    fetch('/api/stages').then((r) => r.json()).then((data) => populateStages(data.stages)).catch(() => {});
+    loadCandidates();
+    loadTraceList(false).catch(() => {});
+    fetch('/api/sessions')
+      .then((r) => r.json())
+      .then((d) => loadResumeOptions(d.sessions))
+      .catch(() => {});
+  }
+
+  async function loadCandidates() {
+    try {
+      const res = await fetch('/api/candidates');
+      const data = await res.json();
+      if (res.ok && data.ok !== false) {
+        state.candidates = data.candidates || [];
+        renderCandidateSelect();
+      }
+    } catch (_) {}
+  }
+
+  function renderCandidateSelect() {
+    const sel = $('candSel');
+    const kept = sel.value;
+    sel.innerHTML = '<option value="">New candidate</option>';
+    for (const c of state.candidates) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      const role = (c.targetRoleAndLevel || 'candidate').slice(0, 26);
+      opt.textContent = `${role} · ${c.coveredStages.length}/${c.total} stages${c.hasDebrief ? ' · debrief done' : ''} · ${new Date(c.updatedAt).toLocaleDateString()}`;
+      sel.appendChild(opt);
+    }
+    if (kept) sel.value = kept;
+  }
+
+  function selectCandidate(id) {
+    state.candidateId = id || null;
+    const existing = !!state.candidateId;
+    $('candNewFields').classList.toggle('hidden', existing);
+    $('candPicked').classList.toggle('hidden', !existing);
+    if (existing) {
+      renderCandidatePick(state.candidateId);
+    } else {
+      $('candDebriefBox').classList.add('hidden');
+      $('candDebriefBox').innerHTML = '';
+    }
+  }
+
+  function renderCandidatePick(id) {
+    const c = state.candidates.find((x) => x.id === id);
+    const el = $('candInfo');
+    if (!c) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = `
+      <span class="chip">Stages covered: <b>${c.coveredStages.length}/${c.total}</b></span>
+      ${c.roundsPlayed ? `<span class="chip">Rounds played: <b>${c.roundsPlayed}</b></span>` : ''}
+      ${c.done
+        ? '<span class="chip" style="color:var(--good)"><b>All gradeable stages covered</b></span>'
+        : `<span class="chip">Next up: <b>${esc(c.missing[0] || '—')}</b></span>`}
+    `;
+    const box = $('candDebriefBox');
+    if (c.hasDebrief) {
+      box.classList.remove('hidden');
+      box.innerHTML = '<button class="prime" id="viewDebriefBtn" style="margin:2px 0 0;width:auto;padding:8px 14px">View candidate debrief</button>';
+      $('viewDebriefBtn').addEventListener('click', () => showCandidateDebrief(id));
+    } else {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+    }
+  }
+
+  async function showCandidateDebrief(id) {
+    const box = $('candDebriefBox');
+    box.innerHTML = '<div class="muted">Loading debrief…</div>';
+    try {
+      const res = await fetch('/api/candidates/' + encodeURIComponent(id));
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Failed to load candidate');
+      const d = data.candidate.debriefReport;
+      if (!d || !d.report) {
+        box.innerHTML = '<div class="muted">No debrief yet for this candidate.</div>';
+        return;
+      }
+      const report = d.report;
+      box.innerHTML = `
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px;line-height:1.5">
+          <div style="font-weight:700;font-size:15px;margin:2px 0 8px">Debrief — ${verdictPill(report.overall_verdict)}</div>
+          <div class="muted">Generated ${esc(new Date(d.at).toLocaleString())}</div>
+          <div style="margin-top:6px">${esc(report.summary || '')}</div>
+          <h3>Patterns across stages</h3>
+          <ul>${(report.cross_stage_patterns || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+          <h3>Top things to work on</h3>
+          <ul>${(report.top_things_to_work_on || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+        </div>
+      `;
+    } catch (err) {
+      box.innerHTML = '<div class="error">' + esc(err.message) + '</div>';
+    }
+  }
+
+  function refreshModeFields() {
+    const practice = state.mode === 'practice';
+    $('stageSel').disabled = !practice;
+    $('candSel').disabled = !practice;
+  }
+
+  function populateStages(stages) {
+    const sel = $('stageSel');
+    for (const s of stages) {
+      if (s.name === 'greeting') continue;
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.textContent = s.name;
+      sel.appendChild(opt);
+    }
+    refreshModeFields();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
