@@ -130,9 +130,25 @@ function createServer({
   }
 
   async function runCandidateDebrief(model, candidate) {
-    const report = await interview.runDebrief({ candidate, deps: deps(model) });
+    const runDeps = deps(model);
+    const sessionLike = { id: `debrief-${candidate.id || 'candidate'}` };
+    const report = await interview.runDebrief({ candidate, deps: runDeps });
+    let coachResult = { action_plan: [], priority_order: [] };
+    try {
+      coachResult = await interview.runCoachTraced({
+        session: sessionLike,
+        deps: runDeps,
+        debriefOutput: report,
+        candidateProfile: candidate.profile,
+        transcriptExcerpts: candidate.qaHistory || [],
+      });
+    } catch (err) {
+      logger.warn(`Coach failed for candidate debrief ${candidate.id}: ${err.message}`);
+    }
     candidate.debriefReport = {
       report,
+      action_plan: coachResult.action_plan,
+      priority_order: coachResult.priority_order,
       stageVerdicts: candidate.stageVerdicts,
       coveredStages: [...candidate.coveredStages],
       at: Date.now(),

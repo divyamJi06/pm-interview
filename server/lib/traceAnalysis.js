@@ -15,7 +15,7 @@ function dirFor(rootDir, sessionId) {
 
 function splitLabel(label) {
   if (label === 'classify-turn') return { role: 'classify', stage: '' };
-  const m = /^(judge|director-clarify|director|profile|synthesizer-stage|synthesizer-interview)(?:-(.+))?$/.exec(label || '');
+  const m = /^(judge|director-clarify|director|profile|synthesizer-stage|synthesizer-interview|coach)(?:-(.+))?$/.exec(label || '');
   if (!m) return { role: 'model_call', stage: '' };
   return { role: m[1], stage: m[2] || '' };
 }
@@ -201,6 +201,19 @@ function buildTimeline(calls) {
         crossStagePatterns: p.cross_stage_patterns || [],
         topThingsToWorkOn: p.top_things_to_work_on || [],
         recommendedResources: Array.isArray(p.recommended_resources) ? p.recommended_resources : [],
+      });
+      continue;
+    }
+
+    if (c.role === 'coach') {
+      const plan = Array.isArray(p.action_plan) ? p.action_plan : [];
+      events.push({
+        type: 'coach',
+        gapCount: plan.length,
+        priority: Array.isArray(p.priority_order) ? p.priority_order : [],
+        text: plan.length
+          ? `Action plan for ${plan.length} gap${plan.length > 1 ? 's' : ''}: ${plan.map((g) => g.gap || '').join('; ')}`
+          : 'Coach produced an empty action plan.',
       });
       continue;
     }

@@ -3,6 +3,7 @@ const { fillTemplate } = require('./promptFiller');
 const { loadStage } = require('./loadStage');
 const { loadResourceBank, formatResourceBank } = require('./resourceBank');
 const { userError } = require('./userError');
+const coach = require('./coach');
 
 const MAX_TURNS_PER_STAGE = 10;
 const MIN_CLARIFY_BEFORE_WRAP = 1;
@@ -343,9 +344,37 @@ async function provideFeedback(session, deps, latestJudge) {
   return latestJudge;
 }
 
+function transcriptEntriesFromSession(session) {
+  return [...(session.triples || new Map())].map(([stage, triples]) => ({ stage, triples }));
+}
+
+async function runCoachTraced({ session, deps, debriefOutput, candidateProfile, transcriptExcerpts }) {
+  const coachingBank = deps.resourceBankFormatter(deps.resourceBankReader());
+  return coach.runCoach({
+    call: (prompt, opts) => callTraced({ deps, session, label: 'coach', prompt, opts }),
+    debriefOutput,
+    candidateProfile,
+    transcriptExcerpts,
+    coachingBank,
+  });
+}
+
 async function finishMockInterview({ session, deps }) {
   await synthesizeCurrentStageIfNeeded({ session, deps });
   const report = await runInterviewSynthesizer({ session, deps });
+  let coachResult = { action_plan: [], priority_order: [] };
+  try {
+    coachResult = await runCoachTraced({
+      session,
+      deps,
+      debriefOutput: report,
+      candidateProfile: session.profile,
+      transcriptExcerpts: transcriptEntriesFromSession(session),
+    });
+  } catch (err) {
+    console.warn(`Coach failed for session ${session.id}: ${err.message}`);
+  }
+  session.coachReport = coachResult;
   session.finalReport = report;
   session.awaiting = 'final_report';
   session.endedAt = Date.now();
@@ -353,7 +382,12 @@ async function finishMockInterview({ session, deps }) {
   const stage = deps.loadStage(session.currentStageName);
   return buildBase(session, stage, deps, {
     state: 'final_report',
-    report: { report, stageVerdicts: session.stageVerdicts },
+    report: {
+      report,
+      stageVerdicts: session.stageVerdicts,
+      action_plan: coachResult.action_plan,
+      priority_order: coachResult.priority_order,
+    },
   });
 }
 
@@ -363,13 +397,34 @@ async function finishPracticeSession({ session, deps }) {
   const lastJudge = (session.triples.get(stage.name) || [])
     .filter((t) => t.judge)
     .at(-1)?.judge || null;
+  let roundCoach = { action_plan: [], priority_order: [] };
+  const verdict = (session.stageVerdicts || []).at(-1)?.verdict;
+  if (verdict) {
+    try {
+      roundCoach = await runCoachTraced({
+        session,
+        deps,
+        debriefOutput: verdict,
+        candidateProfile: session.profile,
+        transcriptExcerpts: transcriptEntriesFromSession(session),
+      });
+    } catch (err) {
+      console.warn(`Coach failed for round ${session.id}: ${err.message}`);
+    }
+  }
+  session.coachReport = roundCoach;
   session.awaiting = 'final_report';
   session.endedAt = Date.now();
   if (deps.traceStore) deps.traceStore.finalizeSession({ sessionId: session.id, outcome: 'finished' });
   return buildBase(session, stage, deps, {
     state: 'final_report',
     feedback: session.feedbackMode === 'simulation' ? null : lastJudge,
-    report: { mode: 'practice', stageVerdicts: session.stageVerdicts },
+    report: {
+      mode: 'practice',
+      stageVerdicts: session.stageVerdicts,
+      action_plan: roundCoach.action_plan,
+      priority_order: roundCoach.priority_order,
+    },
   });
 }
 
@@ -651,6 +706,7 @@ module.exports = {
   processClarify,
   classifyTurn,
   runDebrief,
+  runCoachTraced,
   stagesFor,
   isLastStage,
   formatProfile,

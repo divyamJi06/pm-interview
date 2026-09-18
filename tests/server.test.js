@@ -79,6 +79,20 @@ function makeMockCallModel() {
           ],
         };
       }
+      if (prompt.includes('You are coaching a PM interview candidate')) {
+        return {
+          action_plan: [
+            {
+              gap: 'commit faster',
+              why_it_matters: 'The verdict pattern shows hesitation to land on a call.',
+              how_to_practice: 'For each practice answer, state a single recommended decision in the closing sentence.',
+              try_this_next_time: 'I would commit to the premium segment first because it gives the clearest signal within our test budget.',
+              resource: 'Thinking in Bets — Annie Duke',
+            },
+          ],
+          priority_order: ['commit faster'],
+        };
+      }
       throw new Error('Mock callModel got an unexpected prompt:\n' + prompt.slice(0, 300));
     },
   };
@@ -163,6 +177,9 @@ test('full mock interview runs every stage and produces a final report', async (
       assert.equal(payload.report.report.overall_verdict, 'strong');
       assert.ok(payload.report.report.cross_stage_patterns.length > 0);
       assert.equal(payload.report.report.recommended_resources[0].title, 'Thinking in Bets — Annie Duke');
+      assert.equal(payload.report.action_plan.length, 1);
+      assert.equal(payload.report.action_plan[0].gap, 'commit faster');
+      assert.deepEqual(payload.report.priority_order, ['commit faster']);
       const stages = payload.report.stageVerdicts.map((v) => v.stage);
       assert.deepEqual(stages, ['behavioral', 'estimation', 'product_design', 'case_study', 'strategy', 'execution_metrics', 'technical']);
       break;
@@ -181,7 +198,7 @@ test('full mock interview runs every stage and produces a final report', async (
   const synthPrompt = mock.prompts.find((p) => p.includes('writing the final overall assessment'));
   assert.ok(synthPrompt.includes('RESOURCE BANK:'), 'final report prompt includes the resource bank header');
   assert.ok(!synthPrompt.includes('(no curated resource bank configured)'), 'the shipped resource bank is loaded');
-  assert.ok(synthPrompt.includes('Statistical & probabilistic reasoning'), 'resources are dimension-labeled');
+  assert.ok(synthPrompt.includes('Rambling / answers running too long:'), 'resources are dimension-labeled');
 });
 
 test('practice mode shows feedback after every answer and one stage verdict', async (t) => {
@@ -213,6 +230,11 @@ test('practice mode shows feedback after every answer and one stage verdict', as
 
   assert.equal(final.report.stageVerdicts.length, 1);
   assert.equal(final.report.stageVerdicts[0].stage, 'product_design');
+  assert.equal(final.report.action_plan.length, 1, 'a round-level coach plan is attached to the round report');
+  assert.deepEqual(final.report.priority_order, ['commit faster']);
+  const roundCoachPrompt = mock.prompts.filter((p) => p.includes('You are coaching a PM interview candidate')).at(-1);
+  assert.ok(roundCoachPrompt.includes('"stage_verdict": "strong"'), 'the coach prompt embeds this round\'s stage verdict');
+  assert.ok(roundCoachPrompt.includes('--- STAGE: product_design ---'), 'the coach prompt embeds this round\'s Q/A excerpts');
 });
 
 test('estimation practice uses the checklist judge and finishes its questions', async (t) => {
@@ -722,12 +744,15 @@ test('debrief endpoint synthesizes an overall report across accumulated verdicts
   const debrief = await post(base, '/api/debrief', { candidateId });
   assert.equal(debrief.status, 200);
   assert.equal(debrief.body.debrief.report.overall_verdict, 'strong');
+  assert.equal(debrief.body.debrief.action_plan.length, 1);
+  assert.deepEqual(debrief.body.debrief.priority_order, ['commit faster']);
   assert.equal(debrief.body.candidate.hasDebrief, true);
 
   const detail = await get(base, '/api/candidates/' + encodeURIComponent(candidateId));
   assert.equal(detail.status, 200);
   assert.ok(detail.body.candidate.debriefReport, 'candidate detail includes the stored debrief');
   assert.equal(detail.body.candidate.debriefReport.report.overall_verdict, 'strong');
+  assert.equal(detail.body.candidate.debriefReport.action_plan.length, 1, 'coach output persists on the candidate debrief');
 });
 
 test('completing all graded rounds auto-runs the candidate debrief', async (t) => {
@@ -770,6 +795,11 @@ test('completing all graded rounds auto-runs the candidate debrief', async (t) =
   assert.equal(last.candidate.done, true);
   assert.ok(last.debrief, 'auto-debrief ran when the last graded stage was covered');
   assert.equal(last.debrief.report.overall_verdict, 'strong');
+  assert.equal(last.debrief.action_plan.length, 1, 'the auto-debrief carries a coach action plan');
+
+  const coachPrompt = mock.prompts.find((p) => p.includes('You are coaching a PM interview candidate'));
+  assert.ok(coachPrompt, 'the coach ran on the final debrief');
+  assert.ok(coachPrompt.includes('--- STAGE: behavioral ---'), 'the coach prompt is grounded in the actual per-stage transcript');
 
   const detail = await get(base, '/api/candidates/' + encodeURIComponent(candidateId));
   assert.equal(detail.status, 200);

@@ -33,6 +33,7 @@ test('splitLabel parses role and stage from call labels', () => {
   assert.deepEqual(ta.splitLabel('director-clarify-estimation'), { role: 'director-clarify', stage: 'estimation' });
   assert.deepEqual(ta.splitLabel('judge-behavioral'), { role: 'judge', stage: 'behavioral' });
   assert.deepEqual(ta.splitLabel('synthesizer-interview'), { role: 'synthesizer-interview', stage: '' });
+  assert.deepEqual(ta.splitLabel('coach'), { role: 'coach', stage: '' });
   assert.deepEqual(ta.splitLabel('classify-turn'), { role: 'classify', stage: '' });
   assert.deepEqual(ta.splitLabel('something-else'), { role: 'model_call', stage: '' });
 });
@@ -109,6 +110,27 @@ test('buildTimeline captures clarifying exchange with wrap_up and dedupes questi
   assert.equal(fr.type, 'final_report');
   assert.equal(fr.recommendedResources.length, 1);
   assert.equal(fr.recommendedResources[0].title, 'Thinking in Bets — Annie Duke');
+});
+
+test('buildTimeline renders the coach call as a timeline entry', () => {
+  const timeline = ta.buildTimeline([
+    call(1, 'synthesizer-interview', { parsed: { overall_verdict: 'developing', summary: 'Mixed.' } }),
+    call(2, 'coach', {
+      parsed: {
+        action_plan: [
+          { gap: 'show math', why_it_matters: 'x', how_to_practice: 'y', try_this_next_time: 'z', resource: null },
+          { gap: 'commit', why_it_matters: 'a', how_to_practice: 'b', try_this_next_time: 'c', resource: 'Thinking in Bets' },
+        ],
+        priority_order: ['show math', 'commit'],
+      },
+    }),
+  ]);
+
+  const coach = timeline.find((e) => e.type === 'coach');
+  assert.ok(coach, 'coach call appears in the timeline');
+  assert.equal(coach.gapCount, 2);
+  assert.match(coach.text, /show math/);
+  assert.deepEqual(coach.priority, ['show math', 'commit']);
 });
 
 test('timelineStats counts answers, clarifications, follow-ups and verdicts', () => {

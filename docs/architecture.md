@@ -8,12 +8,13 @@ testable, which is the whole point: a bug in one role shouldn't require
 re-validating the other three.
 
 | Role | Reads | Writes | Prompt file |
-|---|---|---|---|
+|---|---|---|---|---|
 | Judge | rubric, question, answer, (optionally candidate profile) | a grading JSON for one answer | prompts/judge_checklist.md or prompts/judge_dimension.md |
 | Profile-writer | question, answer, Judge's output, existing profile | one new/merged note in the running profile | prompts/profile_writer.md |
 | Director | stage intent, progress/budget, last Judge output, candidate profile | one decision: follow_up / next_question / next_stage / end_interview | prompts/director.md |
 | Synthesizer (stage) | every Q/A/feedback triple in a finished stage | one verdict for that stage | prompts/synthesizer_stage.md |
 | Synthesizer (interview) | every stage verdict, full candidate profile | one overall verdict | prompts/synthesizer_interview.md |
+| Coach | the debrief output, full candidate profile, the Q/A moments gaps came from, coaching resource bank | a prioritized action plan per gap with a rewritten weak moment | prompts/coach.md |
 
 ## The loop, one turn at a time
 
@@ -64,3 +65,21 @@ timing:
 Practice mode also typically runs only one stage and skips the
 interview-level Synthesizer, since there's nothing to roll up across
 stages when there's only one.
+
+## The Coach, and when it runs
+
+The Coach is the sixth role, and it is deliberately not part of the
+per-turn loop. In a full mock interview it runs **once**, right after the
+interview-level Synthesizer at the end of the interview. In practice mode
+it runs **twice at the end of a round**: once at round level (right after
+the stage Synthesizer, grounded in that stage's verdict and Q/A transcript
+— shown as "How to improve this round" in the UI), and, when all gradeable
+stages are covered and the automatic debrief fires, once more at
+candidate level (grounded in the full accumulated Q/A history). It reads
+the debrief's verdict and gaps, the candidate profile, the actual Q/A
+transcript moments each gap traces back to, and the curated coaching
+bank, and writes a prioritized `action_plan` plus `priority_order`. The
+result rides along on the same final-report response (`action_plan` /
+`priority_order` next to `stageVerdicts`) and is snapshotted with the
+session or candidate debrief so it survives a resume and shows up in
+Review.

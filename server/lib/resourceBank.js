@@ -3,8 +3,14 @@ const path = require('path');
 
 const COACHING_DIR = path.resolve(__dirname, '..', '..', 'data', 'coaching');
 
+function resourceKey(resource) {
+  const m = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/.exec(resource);
+  return m ? m[2].replace(/\/+$/, '') : resource.toLowerCase();
+}
+
 function parseResourceBank(md) {
   const sections = [];
+  const seen = new Set();
   let current = null;
   for (const rawLine of md.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -14,8 +20,24 @@ function parseResourceBank(md) {
       sections.push(current);
       continue;
     }
+    let resource = null;
     const bullet = /^[-*]\s+(.+)$/.exec(line);
-    if (current && bullet) current.resources.push(bullet[1].trim());
+    if (bullet) {
+      resource = bullet[1].trim();
+    } else {
+      const keyword = /^\*\*Resource:\*\*\s+(.+)$/.exec(line);
+      if (keyword) resource = keyword[1].trim();
+    }
+    if (!resource) continue;
+    if (!current) {
+      current = { dimension: 'General', resources: [] };
+      sections.push(current);
+    }
+    const key = resourceKey(resource);
+    if (!seen.has(key)) {
+      seen.add(key);
+      current.resources.push(resource);
+    }
   }
   return sections.filter((s) => s.resources.length > 0);
 }

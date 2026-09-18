@@ -205,6 +205,9 @@ function makeTracedCallModel() {
     if (prompt.includes('maintaining a short running profile')) return { updated_profile: ['tests assumptions'] };
     if (prompt.includes('deciding what happens next')) return directorDecision(prompt);
     if (prompt.includes('writing a stage-level verdict')) return { stage_verdict: 'strong', summary: 'ok', strengths: [], gaps: [] };
+    if (prompt.includes('You are coaching a PM interview candidate')) {
+      return { action_plan: [], priority_order: [] };
+    }
     throw new Error('Mock callModel got an unexpected prompt:\n' + prompt.slice(0, 300));
   };
 }
@@ -230,20 +233,26 @@ test('a full practice session writes a navigable, costed trace per session', asy
     '002-profile-estimation.json',
     '003-director-estimation.json',
     '004-synthesizer-stage-estimation.json',
+    '005-coach.json',
   ]);
 
   const judge = JSON.parse(fs.readFileSync(path.join(dirPath, 'calls', '001-judge-estimation.json'), 'utf8'));
   assert.equal(judge.label, 'judge-estimation');
   assert.match(judge.prompt, /You are grading a candidate/);
 
+  const coach = JSON.parse(fs.readFileSync(path.join(dirPath, 'calls', '005-coach.json'), 'utf8'));
+  assert.equal(coach.label, 'coach');
+  assert.match(coach.prompt, /You are coaching a PM interview candidate/);
+
   const summary = JSON.parse(fs.readFileSync(path.join(dirPath, 'cost-summary.json'), 'utf8'));
-  assert.equal(summary.totals.calls, 4);
-  assert.equal(summary.totals.success, 4);
+  assert.equal(summary.totals.calls, 5);
+  assert.equal(summary.totals.success, 5);
   assert.equal(summary.totals.failed, 0);
   assert.deepEqual(summary.callsByLabel, {
     'director-estimation': 1,
     'judge-estimation': 1,
     'profile-estimation': 1,
     'synthesizer-stage-estimation': 1,
+    coach: 1,
   });
 });

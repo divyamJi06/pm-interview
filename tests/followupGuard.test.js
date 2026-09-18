@@ -46,6 +46,9 @@ function makeCallModel(policy = 'per_question_probe') {
     if (prompt.includes('writing a stage-level verdict')) {
       return { stage_verdict: 'developing', summary: 'ok', strengths: [], gaps: [] };
     }
+    if (prompt.includes('You are coaching a PM interview candidate')) {
+      return { action_plan: [], priority_order: [] };
+    }
     throw new Error('Mock callModel got an unexpected prompt:\n' + prompt.slice(0, 300));
   };
 }

@@ -34,6 +34,7 @@ function makeCallModel(prompts, options = {}) {
     if (prompt.includes('You are the interviewer in a PM mock interview')) return clarify(prompt);
     if (prompt.includes('You are routing messages')) return { type: classify || 'answer' };
     if (prompt.includes('writing a stage-level verdict')) return { stage_verdict: 'strong', summary: 'ok', strengths: [], gaps: [] };
+    if (prompt.includes('You are coaching a PM interview candidate')) return { action_plan: [], priority_order: [] };
     throw new Error('Mock callModel got an unexpected prompt:\n' + prompt.slice(0, 300));
   };
 }

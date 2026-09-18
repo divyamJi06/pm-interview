@@ -40,7 +40,7 @@ test('coverage reports all seven graded stages and excludes the greeting', () =>
   candidateStore.clearCandidates();
 });
 
-test('mergeSessionIntoCandidate folds profile, verdict, coverage, and round history', () => {
+test('mergeSessionIntoCandidate folds profile, verdict, coverage, round history, and Q/A history', () => {
   candidateStore.clearCandidates();
   const c = candidateStore.createCandidate({});
   const session = {
@@ -48,6 +48,7 @@ test('mergeSessionIntoCandidate folds profile, verdict, coverage, and round hist
     createdAt: 1000,
     profile: ['notes a', 'notes b'],
     stageVerdicts: [{ stage: 'behavioral', verdict: { stage_verdict: 'strong', summary: 'ok' } }],
+    triples: new Map([['behavioral', [{ question: 'Q1', answer: 'A1', isFollowUp: false, clarifications: [], judge: { overall_verdict: 'strong' } }]]]),
   };
   rounds.mergeSessionIntoCandidate(c, session);
   assert.deepEqual(c.profile, ['notes a', 'notes b']);
@@ -56,12 +57,16 @@ test('mergeSessionIntoCandidate folds profile, verdict, coverage, and round hist
   assert.equal(c.roundHistory.length, 1);
   assert.equal(c.roundHistory[0].stage, 'behavioral');
   assert.equal(c.roundHistory[0].sessionId, 'round-1');
+  assert.equal(c.qaHistory.length, 1);
+  assert.equal(c.qaHistory[0].stage, 'behavioral');
+  assert.equal(c.qaHistory[0].triples[0].answer, 'A1');
 
   const second = {
     id: 'round-2',
     createdAt: 2000,
     profile: ['notes a', 'notes b', 'notes c'],
     stageVerdicts: [{ stage: 'behavioral', verdict: { stage_verdict: 'weak', summary: 'regressed' } }],
+    triples: new Map([['behavioral', [{ question: 'Q1', answer: 'A2', isFollowUp: false, clarifications: [], judge: { overall_verdict: 'weak' } }]]]),
   };
   rounds.mergeSessionIntoCandidate(c, second);
   assert.equal(c.profile.length, 3);
@@ -69,6 +74,22 @@ test('mergeSessionIntoCandidate folds profile, verdict, coverage, and round hist
   assert.equal(c.stageVerdicts[0].verdict.stage_verdict, 'weak');
   assert.deepEqual(c.coveredStages, ['behavioral'], 'already-covered stages are not duplicated');
   assert.equal(c.roundHistory.length, 2);
+  assert.equal(c.qaHistory.length, 1, 'repeated stage keeps only the latest Q/A history');
+  assert.equal(c.qaHistory[0].triples[0].answer, 'A2');
+  candidateStore.clearCandidates();
+});
+
+test('mergeSessionIntoCandidate tolerates sessions without a triples map', () => {
+  candidateStore.clearCandidates();
+  const c = candidateStore.createCandidate({});
+  rounds.mergeSessionIntoCandidate(c, {
+    id: 'r',
+    createdAt: 0,
+    profile: ['x'],
+    stageVerdicts: [{ stage: 'behavioral', verdict: { stage_verdict: 'developing', summary: '' } }],
+  });
+  assert.equal(c.qaHistory.length, 1);
+  assert.deepEqual(c.qaHistory[0].triples, []);
   candidateStore.clearCandidates();
 });
 

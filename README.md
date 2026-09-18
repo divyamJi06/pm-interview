@@ -104,6 +104,14 @@ feedback timing chosen by you.
   dimension-tagged coaching bank in `data/coaching/` (edit the markdown
   files there to change what can be recommended). The synthesizer is told
   to only ever pick from that list — it never invents titles.
+- **A Coach agent** (`prompts/coach.md`, `server/lib/coach.js`) runs after
+  every practice round (action plan shown right next to the round verdict)
+  and once per full debrief — at the end of a full mock interview or when
+  a practice candidate finishes all gradeable stages — and rewrites the
+  candidate's actual weak moments into a prioritized, concrete
+  `action_plan` / `priority_order`, which rides along on the same
+  final-report response, persists with the session / candidate debrief,
+  and is tagged `coach` in Review sessions.
 - At setup you can optionally paste your resume / background; it is held
   per session (capped at 8,000 characters) and fed to the profile-writer,
   which folds relevant facts into the running candidate profile so later

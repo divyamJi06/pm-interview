@@ -31,6 +31,9 @@ function mergeSessionIntoCandidate(candidate, session) {
       startedAt: session.createdAt,
       endedAt: Date.now(),
     });
+    const triples = session.triples && session.triples.get ? session.triples.get(sv.stage) || [] : [];
+    candidate.qaHistory = (candidate.qaHistory || []).filter((q) => q.stage !== sv.stage);
+    candidate.qaHistory.push({ stage: sv.stage, triples });
   }
   candidate.updatedAt = Date.now();
 }

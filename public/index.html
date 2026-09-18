@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PM Interview Prep</title>
+<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "yk5m9df9gq");
+</script>
 <style>
   :root {
     --bg: #0f172a;
@@ -91,6 +98,16 @@
     cursor: pointer;
   }
   .prime:disabled { opacity: .5; cursor: not-allowed; }
+  .ghost {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-2);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .ghost:disabled { opacity: .5; cursor: not-allowed; }
 
   .progress { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
   .progress b { color: var(--text); font-weight: 600; }
@@ -162,6 +179,9 @@
   .report .big { font-size: 16px; font-weight: 700; margin: 4px 0 10px; }
   .report h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 6px; }
   .report ul { margin: 4px 0 0; padding-left: 20px; }
+  .coach-card { border: 1px solid var(--border); border-left: 3px solid var(--accent-2); border-radius: 10px; padding: 12px 14px; margin: 10px 0 14px; }
+  .coach-card .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 10px 0 2px; }
+  .coach-card .rt { background: #16233b; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--accent-2); line-height: 1.55; }
   .stage-line { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
   .stage-line .nm { font-weight: 600; }
   .stage-line .v { font-weight: 700; }
@@ -512,7 +532,7 @@
       state.awaiting = 'final_report';
       $('session').classList.add('hidden');
       const r = payload.report;
-      if (r && r.report) { renderMockReport(r.report, r.stageVerdicts); }
+      if (r && r.report) { renderMockReport(r.report, r.stageVerdicts, r.action_plan, r.priority_order); }
       else { renderRoundReport(r, payload.candidate, payload.debrief); }
       $('doneMsg').classList.remove('hidden');
       $('report').classList.remove('hidden');
@@ -574,7 +594,39 @@
     }
   }
 
-  function renderMockReport(report, stageVerdicts) {
+  function orderCoachPlan(plan, priority) {
+    const byGap = new Map();
+    for (const item of plan || []) {
+      if (item && item.gap) byGap.set(item.gap, item);
+    }
+    const ordered = [];
+    for (const key of priority || []) {
+      if (byGap.has(key)) {
+        ordered.push(byGap.get(key));
+        byGap.delete(key);
+      }
+    }
+    for (const item of byGap.values()) ordered.push(item);
+    return ordered;
+  }
+
+  function coachPlanHTML(actionPlan, priorityOrder) {
+    const items = orderCoachPlan(actionPlan, priorityOrder);
+    if (!items.length) return '';
+    const cards = items
+      .map((item, i) => `
+        <div class="coach-card">
+          <div style="font-weight:700">${i + 1}. ${esc(item.gap || '')}</div>
+          ${item.resource ? `<div class="muted" style="margin:4px 0 0;font-size:12px">Fits well with: <b>${esc(item.resource)}</b></div>` : ''}
+          ${item.why_it_matters ? `<div class="k">Why it matters for you</div><div>${esc(item.why_it_matters)}</div>` : ''}
+          ${item.how_to_practice ? `<div class="k">Practice drill</div><div>${esc(item.how_to_practice)}</div>` : ''}
+          ${item.try_this_next_time ? `<div class="k">A stronger version of your answer — try this next time</div><div class="rt">${esc(item.try_this_next_time)}</div>` : ''}
+        </div>`)
+      .join('');
+    return `<h3>How to improve</h3>${cards}`;
+  }
+
+  function renderMockReport(report, stageVerdicts, actionPlan, priorityOrder) {
     const el = $('report');
     const resources = report.recommended_resources || [];
     el.innerHTML = `
@@ -584,6 +636,7 @@
       <ul>${(report.cross_stage_patterns || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
       <h3>Top things to work on</h3>
       <ul>${(report.top_things_to_work_on || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+      ${coachPlanHTML(actionPlan, priorityOrder)}
       ${resources.length ? `
         <h3>Recommended resources</h3>
         <ul>${resources.map((r) => `<li><b>${esc(r.title || '')}</b>${r.type ? ` <span class="muted">(${esc(r.type)})</span>` : ''}${r.why ? ` — ${esc(r.why)}` : ''}</li>`).join('')}</ul>
@@ -601,11 +654,13 @@
     const sv = (r.stageVerdicts || [])[0];
     let html = '<div class="big">Round complete</div>';
     if (sv) {
+      const roundPlan = r.action_plan && r.action_plan.length ? coachPlanHTML(r.action_plan, r.priority_order) : '';
       html += `
         <div class="stage-line"><span class="nm">${esc(sv.stage)}</span><span class="v">${verdictPill(sv.verdict.stage_verdict)}</span></div>
         <p class="summ">${esc(sv.verdict.summary || '')}</p>
         ${sv.verdict.strengths && sv.verdict.strengths.length ? '<h3>Strengths</h3><ul>' + sv.verdict.strengths.map((s) => `<li>${esc(s)}</li>`).join('') + '</ul>' : ''}
         ${sv.verdict.gaps && sv.verdict.gaps.length ? '<h3>Gaps</h3><ul>' + sv.verdict.gaps.map((g) => `<li>${esc(g)}</li>`).join('') + '</ul>' : ''}
+        ${roundPlan ? '<h3>How to improve this round</h3>' + roundPlan : ''}
       `;
     } else {
       html += '<div class="muted">This stage was not graded.</div>';
@@ -635,6 +690,7 @@
       if (recs.length) {
         html += '<h3>Recommended resources</h3><ul>' + recs.map((rr) => `<li><b>${esc(rr.title || '')}</b>${rr.type ? ` <span class="muted">(${esc(rr.type)})</span>` : ''}${rr.why ? ` — ${esc(rr.why)}` : ''}</li>`).join('') + '</ul>';
       }
+      html += coachPlanHTML(debrief.action_plan, debrief.priority_order);
     }
     html += '<button class="prime" id="nextRoundBtn" style="margin-top:18px">Start next round</button>';
     el.innerHTML = html;
@@ -903,6 +959,8 @@
           (e.crossStagePatterns.length ? `<br><b>Patterns:</b> ${esc(e.crossStagePatterns.join(', '))}` : '') +
           (e.topThingsToWorkOn.length ? `<br><b>Work on:</b> ${esc(e.topThingsToWorkOn.join(', '))}` : '') +
           (e.recommendedResources.length ? `<br><b>Resources:</b> ${esc(e.recommendedResources.map((r) => r.title || '').join(', '))}` : '');
+      } else if (e.type === 'coach') {
+        html = `<b>Coach</b><br>${esc(e.text || '')}`;
       } else {
         html = esc(String(e.text || e.label || '').slice(0, 200));
       }
@@ -1168,13 +1226,44 @@
         : `<span class="chip">Next up: <b>${esc(c.missing[0] || '—')}</b></span>`}
     `;
     const box = $('candDebriefBox');
+    box.classList.remove('hidden');
     if (c.hasDebrief) {
-      box.classList.remove('hidden');
-      box.innerHTML = '<button class="prime" id="viewDebriefBtn" style="margin:2px 0 0;width:auto;padding:8px 14px">View candidate debrief</button>';
+      box.innerHTML = `
+        <button class="prime" id="viewDebriefBtn" style="margin:2px 0 0;width:auto;padding:8px 14px">View candidate debrief</button>
+        <button id="runDebriefBtn" class="ghost" style="margin:2px 0 0 6px;width:auto;padding:8px 14px">Update debrief</button>
+      `;
       $('viewDebriefBtn').addEventListener('click', () => showCandidateDebrief(id));
+      $('runDebriefBtn').addEventListener('click', () => runCandidateDebrief(id));
     } else {
-      box.classList.add('hidden');
-      box.innerHTML = '';
+      box.innerHTML = '<button class="prime" id="runDebriefBtn" style="margin:2px 0 0;width:auto;padding:8px 14px">Run candidate debrief</button>';
+      $('runDebriefBtn').addEventListener('click', () => runCandidateDebrief(id));
+    }
+  }
+
+  async function runCandidateDebrief(id) {
+    const btn = $('runDebriefBtn');
+    if (!btn || btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    const prev = btn.textContent;
+    btn.textContent = 'Running debrief…';
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/debrief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Debrief failed');
+      await loadCandidates();
+      renderCandidatePick(id);
+      showCandidateDebrief(id);
+    } catch (err) {
+      $('candDebriefBox').innerHTML = `<div class="error">Debrief failed: ${esc(err.message)}</div>`;
+    } finally {
+      btn.dataset.busy = '';
+      btn.disabled = false;
+      btn.textContent = prev;
     }
   }
 
@@ -1200,6 +1289,7 @@
           <ul>${(report.cross_stage_patterns || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
           <h3>Top things to work on</h3>
           <ul>${(report.top_things_to_work_on || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+          ${coachPlanHTML(d.action_plan, d.priority_order)}
         </div>
       `;
     } catch (err) {
