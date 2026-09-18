@@ -174,6 +174,41 @@
     height: 42px;
   }
   .inputbar button:disabled { opacity: .5; cursor: not-allowed; }
+  .inputbar button.mic {
+    width: 42px;
+    flex: 0 0 42px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .inputbar button.mic svg { fill: currentColor; }
+  .inputbar button.mic.rec {
+    background: var(--bad);
+    border-color: var(--bad);
+    color: #fff;
+    animation: micPulse 1.2s infinite;
+  }
+  .inputbar button.mic.busy { color: var(--accent); }
+  @keyframes micPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248,113,113,.55); }
+    50% { box-shadow: 0 0 0 7px rgba(248,113,113,0); }
+  }
+  .micHint {
+    position: absolute;
+    bottom: 68px;
+    left: 0;
+    background: #0b1220;
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    max-width: 420px;
+  }
 
   .report { line-height: 1.6; }
   .report .big { font-size: 16px; font-weight: 700; margin: 4px 0 10px; }
@@ -344,7 +379,10 @@
       </div>
       <div id="log"></div>
       <div class="inputbar">
-        <textarea id="answer" rows="2" placeholder="Type your answer here… Enter to send"></textarea>
+        <button id="micBtn" class="mic" type="button" title="Speak your answer instead of typing it" aria-label="Record your answer" aria-pressed="false" disabled>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        </button>
+        <textarea id="answer" rows="2" placeholder="Type or speak your answer here… Enter to send"></textarea>
         <button id="sendBtn">Send</button>
       </div>
     </div>
@@ -393,7 +431,9 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const state = { sessionId: null, mode: 'mock', busy: false, awaiting: 'setup', candidateId: null, feedback: 'full', candidates: [] };
+  const state = { sessionId: null, mode: 'mock', busy: false, awaiting: 'setup', candidateId: null, feedback: 'full', candidates: [], sttEnabled: false, recording: false };
+  const recorder = { media: null, stream: null, chunks: [] };
+  const MIC_HTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>';
 
   const VERDICT_CLASS = { strong: 'v-strong', developing: 'v-developing', weak: 'v-weak' };
 
@@ -462,6 +502,7 @@
     state.busy = b;
     $('sendBtn').disabled = b;
     $('answer').disabled = b;
+    $('micBtn').disabled = b || !state.sttEnabled || state.recording;
   }
 
   function showError(msg) {
@@ -743,7 +784,127 @@
     }
   }
 
+  function pickAudioMime() {
+    const opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    for (const m of opts) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return '';
+  }
+
+  function micHint(msg, persist) {
+    let el = $('micHint');
+    if (!msg) {
+      if (el) el.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'micHint';
+      el.id = 'micHint';
+      $('inputbar').prepend(el);
+    }
+    el.textContent = msg;
+    if (!persist) setTimeout(() => el.remove(), 6000);
+  }
+
+  async function processRecording() {
+    const { media, stream, chunks } = recorder;
+    recorder.media = null;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    recorder.stream = null;
+
+    const mime = media && media.mimeType && /^audio\//.test(media.mimeType) ? media.mimeType : 'audio/webm';
+    const blob = new Blob(chunks, { type: mime });
+    recorder.chunks = [];
+    if (!blob.size) return;
+
+    const btn = $('micBtn');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    btn.innerHTML = '…';
+    btn.title = 'Transcribing…';
+    try {
+      const res = await fetch('/api/stt', {
+        method: 'POST',
+        headers: { 'content-type': blob.type },
+        body: blob,
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Transcription failed');
+      if (data.text) {
+        const ta = $('answer');
+        const cur = ta.value.replace(/\s+$/g, '').trimEnd();
+        ta.value = cur ? cur + '\n' + data.text : data.text;
+        ta.focus();
+        ta.scrollTop = ta.scrollHeight;
+      } else {
+        micHint('I could not hear anything — try again.', true);
+      }
+    } catch (err) {
+      micHint(err.message, true);
+    } finally {
+      btn.classList.remove('busy');
+      btn.innerHTML = MIC_HTML;
+      btn.title = 'Speak your answer instead of typing it';
+      btn.disabled = state.busy || !state.sttEnabled;
+    }
+  }
+
+  function stopRecording() {
+    if (!state.recording) return;
+    state.recording = false;
+    const btn = $('micBtn');
+    btn.classList.remove('rec');
+    btn.setAttribute('aria-pressed', 'false');
+    btn.title = 'Stopping…';
+    if (recorder.media && recorder.media.state !== 'inactive') recorder.media.stop();
+  }
+
+  async function toggleMic() {
+    if (state.recording) return stopRecording();
+    if (state.busy || !$('micBtn') || $('micBtn').disabled) return;
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      micHint('Voice input is not supported in this browser.', true);
+      return;
+    }
+    micHint('');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      micHint(err.name === 'NotAllowedError' || err.name === 'SecurityError'
+        ? 'Microphone access was denied — allow the mic and try again.'
+        : 'Could not start the microphone.', true);
+      return;
+    }
+    const mime = pickAudioMime();
+    let media;
+    try {
+      media = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    } catch (err) {
+      stream.getTracks().forEach((t) => t.stop());
+      micHint('Your browser cannot record audio here.', true);
+      return;
+    }
+    recorder.media = media;
+    recorder.stream = stream;
+    recorder.chunks = [];
+    media.ondataavailable = (e) => {
+      if (e.data && e.data.size) recorder.chunks.push(e.data);
+    };
+    media.onstop = () => processRecording();
+    media.start();
+
+    state.recording = true;
+    const btn = $('micBtn');
+    btn.classList.add('rec');
+    btn.setAttribute('aria-pressed', 'true');
+    btn.title = 'Recording — click to stop';
+  }
+
   async function send() {
+    if (state.recording) stopRecording();
     const ta = $('answer');
     const text = ta.value.replace(/\s+$/g, '\n').trim();
     if (!text || state.busy || !state.sessionId) return;
@@ -1157,6 +1318,17 @@
     $('candSel').addEventListener('change', () => selectCandidate($('candSel').value));
     $('startBtn').addEventListener('click', start);
     $('sendBtn').addEventListener('click', send);
+    $('micBtn').addEventListener('click', toggleMic);
+    fetch('/api/stt/config')
+      .then((r) => r.json())
+      .then((d) => {
+        state.sttEnabled = !!(d && d.ok && d.enabled);
+        $('micBtn').disabled = !state.sttEnabled || state.busy;
+        if (!state.sttEnabled) {
+          $('micBtn').title = 'Voice input is off — set DEEPGRAM_API_KEY in .env to enable it';
+        }
+      })
+      .catch(() => {});
     const ta = $('answer');
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {

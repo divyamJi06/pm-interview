@@ -116,6 +116,15 @@ feedback timing chosen by you.
   per session (capped at 8,000 characters) and fed to the profile-writer,
   which folds relevant facts into the running candidate profile so later
   stages judge with real context about the interviewee.
+- **Voice-to-text answers**: a mic button in the chat lets you speak an
+  answer instead of typing it. Audio is recorded in the browser
+  (`MediaRecorder`), sent as raw bytes to `POST /api/stt`, and transcribed
+  by Deepgram (REST listen, `server/lib/deepgramStt.js`) with smart
+  formatting on and filler words stripped. The transcript lands in the
+  answer box where you can read, edit, and then send it — the Judge always
+  sees the text you actually submit. Set `DEEPGRAM_API_KEY` (and optionally
+  `DEEPGRAM_STT_MODEL`, default `nova-3`) in `.env`; until a key is present
+  the mic button is disabled and `/api/stt/config` reports why.
 
 ## Running it
 
@@ -234,8 +243,8 @@ prompts/                    one markdown template per AI role
 server/config/stage_order.md   how stages are sequenced, per-stage question counts, decisions
 server/server.js            the running app (Node stdlib only, no deps)
 server/lib/                 loadStage, sessionStore, prompts, promptFiller,
-                            callModel, traceStore, traceAnalysis, and
-                            interview (the four-role loop)
+                            callModel, traceStore, traceAnalysis, deepgramStt,
+                            and interview (the four-role loop)
 public/index.html           the single-page frontend
 traces/                     per-session model-call traces + cost summaries
 sessions/                   in-progress session snapshots for resume (gitignored)
