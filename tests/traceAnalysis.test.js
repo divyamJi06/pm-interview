@@ -34,6 +34,7 @@ test('splitLabel parses role and stage from call labels', () => {
   assert.deepEqual(ta.splitLabel('judge-behavioral'), { role: 'judge', stage: 'behavioral' });
   assert.deepEqual(ta.splitLabel('synthesizer-interview'), { role: 'synthesizer-interview', stage: '' });
   assert.deepEqual(ta.splitLabel('coach'), { role: 'coach', stage: '' });
+  assert.deepEqual(ta.splitLabel('stt'), { role: 'stt', stage: '' });
   assert.deepEqual(ta.splitLabel('classify-turn'), { role: 'classify', stage: '' });
   assert.deepEqual(ta.splitLabel('something-else'), { role: 'model_call', stage: '' });
 });

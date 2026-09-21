@@ -431,7 +431,7 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const state = { sessionId: null, mode: 'mock', busy: false, awaiting: 'setup', candidateId: null, feedback: 'full', candidates: [], sttEnabled: false, recording: false };
+  const state = { sessionId: null, mode: 'mock', busy: false, awaiting: 'setup', candidateId: null, feedback: 'full', candidates: [], sttEnabled: false, sttProvider: '', recording: false };
   const recorder = { media: null, stream: null, chunks: [] };
   const MIC_HTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>';
 
@@ -785,7 +785,12 @@
   }
 
   function pickAudioMime() {
-    const opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    // Cohere STT rejects webm (flac/mp3/mpeg/mpga/ogg/wav only), so we prefer
+    // an ogg recording when possible — Firefox can emit it. Chrome falls back
+    // to webm; the client converts that webm to wav before uploading.
+    const opts = state.sttProvider === 'cohere'
+      ? ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/mp4']
+      : ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
     for (const m of opts) {
       if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
     }
@@ -802,10 +807,65 @@
       el = document.createElement('div');
       el.className = 'micHint';
       el.id = 'micHint';
-      $('inputbar').prepend(el);
+      const bar = document.querySelector('.inputbar');
+      if (!bar) return;
+      bar.prepend(el);
     }
     el.textContent = msg;
     if (!persist) setTimeout(() => el.remove(), 6000);
+  }
+
+  function encodeWav(floatSamples, sampleRate) {
+    const n = floatSamples.length;
+    const buf = new ArrayBuffer(44 + n * 2);
+    const w = new DataView(buf);
+    const putStr = (o, s) => { for (let i = 0; i < s.length; i++) w.setUint8(o + i, s.charCodeAt(i)); };
+    putStr(0, 'RIFF');
+    w.setUint32(4, 36 + n * 2, true);
+    putStr(8, 'WAVE');
+    putStr(12, 'fmt ');
+    w.setUint32(16, 16, true);
+    w.setUint16(20, 1, true);
+    w.setUint16(22, 1, true);
+    w.setUint32(24, sampleRate, true);
+    w.setUint32(28, sampleRate * 2, true);
+    w.setUint16(32, 2, true);
+    w.setUint16(34, 16, true);
+    putStr(36, 'data');
+    w.setUint32(40, n * 2, true);
+    let off = 44;
+    for (let i = 0; i < n; i++) {
+      const s = Math.max(-1, Math.min(1, floatSamples[i]));
+      w.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      off += 2;
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  async function cohereWavFromWebm(webmBlob) {
+    const ctx = new AudioContext();
+    try {
+      const src = await ctx.decodeAudioData(await webmBlob.arrayBuffer());
+      const rate = src.sampleRate;
+      const mono = new Float32Array(src.length);
+      for (let ch = 0; ch < src.numberOfChannels; ch++) {
+        const data = src.getChannelData(ch);
+        for (let i = 0; i < data.length; i++) mono[i] += data[i] / src.numberOfChannels;
+      }
+      const targetRate = 16000;
+      const outLen = Math.max(1, Math.round((src.length * targetRate) / rate));
+      const off = new OfflineAudioContext(1, outLen, targetRate);
+      const buf = off.createBuffer(1, src.length, rate);
+      buf.copyToChannel(mono, 0);
+      const node = off.createBufferSource();
+      node.buffer = buf;
+      node.connect(off.destination);
+      node.start();
+      const rendered = await off.startRendering();
+      return encodeWav(rendered.getChannelData(0), targetRate);
+    } finally {
+      if (ctx.close) ctx.close().catch(() => {});
+    }
   }
 
   async function processRecording() {
@@ -815,9 +875,17 @@
     recorder.stream = null;
 
     const mime = media && media.mimeType && /^audio\//.test(media.mimeType) ? media.mimeType : 'audio/webm';
-    const blob = new Blob(chunks, { type: mime });
+    let blob = new Blob(chunks, { type: mime });
     recorder.chunks = [];
     if (!blob.size) return;
+
+    if (state.sttProvider === 'cohere' && !/^(audio\/(ogg|wav|flac|mp3|mpeg|mpga);?)/.test(blob.type)) {
+      try {
+        blob = await cohereWavFromWebm(blob);
+      } catch (_) {
+        // Keep the webm; if the provider rejects it the server will explain.
+      }
+    }
 
     const btn = $('micBtn');
     btn.disabled = true;
@@ -825,17 +893,23 @@
     btn.innerHTML = '…';
     btn.title = 'Transcribing…';
     try {
-      const res = await fetch('/api/stt', {
+      const b64 = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+        fr.onerror = () => reject(new Error('Could not read the recording.'));
+        fr.readAsDataURL(blob);
+      });
+      const res = await fetch('/api/transcribe', {
         method: 'POST',
-        headers: { 'content-type': blob.type },
-        body: blob,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: state.sessionId, audio: b64, contentType: blob.type }),
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) throw new Error(data.error || 'Transcription failed');
-      if (data.text) {
+      if (data.transcript) {
         const ta = $('answer');
         const cur = ta.value.replace(/\s+$/g, '').trimEnd();
-        ta.value = cur ? cur + '\n' + data.text : data.text;
+        ta.value = cur ? cur + '\n' + data.transcript : data.transcript;
         ta.focus();
         ta.scrollTop = ta.scrollHeight;
       } else {
@@ -1319,13 +1393,14 @@
     $('startBtn').addEventListener('click', start);
     $('sendBtn').addEventListener('click', send);
     $('micBtn').addEventListener('click', toggleMic);
-    fetch('/api/stt/config')
+    fetch('/api/transcribe/config')
       .then((r) => r.json())
       .then((d) => {
         state.sttEnabled = !!(d && d.ok && d.enabled);
+        state.sttProvider = (d && d.provider) || '';
         $('micBtn').disabled = !state.sttEnabled || state.busy;
         if (!state.sttEnabled) {
-          $('micBtn').title = 'Voice input is off — set DEEPGRAM_API_KEY in .env to enable it';
+          $('micBtn').title = 'Voice input is off — set STT_PROVIDER and its API key in .env to enable it';
         }
       })
       .catch(() => {});

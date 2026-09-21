@@ -15,7 +15,7 @@ function dirFor(rootDir, sessionId) {
 
 function splitLabel(label) {
   if (label === 'classify-turn') return { role: 'classify', stage: '' };
-  const m = /^(judge|director-clarify|director|profile|synthesizer-stage|synthesizer-interview|coach)(?:-(.+))?$/.exec(label || '');
+  const m = /^(judge|director-clarify|director|profile|synthesizer-stage|synthesizer-interview|coach|stt)(?:-(.+))?$/.exec(label || '');
   if (!m) return { role: 'model_call', stage: '' };
   return { role: m[1], stage: m[2] || '' };
 }

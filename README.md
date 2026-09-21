@@ -118,13 +118,19 @@ feedback timing chosen by you.
   stages judge with real context about the interviewee.
 - **Voice-to-text answers**: a mic button in the chat lets you speak an
   answer instead of typing it. Audio is recorded in the browser
-  (`MediaRecorder`), sent as raw bytes to `POST /api/stt`, and transcribed
-  by Deepgram (REST listen, `server/lib/deepgramStt.js`) with smart
-  formatting on and filler words stripped. The transcript lands in the
-  answer box where you can read, edit, and then send it — the Judge always
-  sees the text you actually submit. Set `DEEPGRAM_API_KEY` (and optionally
-  `DEEPGRAM_STT_MODEL`, default `nova-3`) in `.env`; until a key is present
-  the mic button is disabled and `/api/stt/config` reports why.
+  (`MediaRecorder`), sent as base64 to `POST /api/transcribe`, and
+  transcribed by one configured provider (`server/lib/transcribe.js`) with
+  one plain `fetch` call — no SDK, no streaming, no websocket. The
+  transcript lands in the answer box where you can read, edit, and then
+  send it — the Judge always sees the text you actually submit. Pick a
+  provider with `STT_PROVIDER` (`deepgram` default | `openai` | `cohere`)
+  and set its API key in `.env`; until a key is present the mic button is
+  disabled and `/api/transcribe/config` reports why. `cohere` requires
+  `STT_LANGUAGE` and does not accept webm/opus (flac/mp3/mpeg/mpga/ogg/wav
+  only) — the client detects that and decodes the Chrome/Firefox webm
+  clip, re-encodes a 16 kHz mono WAV, and uploads that, so cohere works on
+  every browser. Each transcription is priced per minute of audio and
+  tagged `stt` in the existing `cost-summary.json` per-role breakdown.
 
 ## Running it
 
@@ -243,7 +249,7 @@ prompts/                    one markdown template per AI role
 server/config/stage_order.md   how stages are sequenced, per-stage question counts, decisions
 server/server.js            the running app (Node stdlib only, no deps)
 server/lib/                 loadStage, sessionStore, prompts, promptFiller,
-                            callModel, traceStore, traceAnalysis, deepgramStt,
+                            callModel, traceStore, traceAnalysis, transcribe,
                             and interview (the four-role loop)
 public/index.html           the single-page frontend
 traces/                     per-session model-call traces + cost summaries

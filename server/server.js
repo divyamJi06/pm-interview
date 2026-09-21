@@ -7,7 +7,7 @@ loadEnvIntoProcess();
 
 const { loadStageOrder } = require('./config/stageOrder');
 const { createCallModel, DEFAULT_PROVIDER } = require('./lib/callModel');
-const { createTranscriber } = require('./lib/deepgramStt');
+const { createTranscriber } = require('./lib/transcribe');
 const { createTraceStore } = require('./lib/traceStore');
 const { createSessionFileStore } = require('./lib/sessionFileStore');
 const { createCandidateFileStore } = require('./lib/candidateFileStore');
@@ -34,13 +34,13 @@ function json(res, status, body) {
   res.end(payload);
 }
 
-function readJsonBody(req) {
+function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBytes) {
         reject(new Error('Request body too large'));
         req.destroy();
         return;
@@ -54,29 +54,6 @@ function readJsonBody(req) {
       } catch (err) {
         reject(new Error(`Invalid JSON body: ${err.message}`));
       }
-    });
-    req.on('error', reject);
-  });
-}
-
-function readRawBody(req, maxBytes) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on('data', (chunk) => {
-      size += chunk.length;
-      if (size > maxBytes) {
-        reject(new Error('Audio too large. Keep an answer under ~8 minutes.'));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      const contentType = String(req.headers['content-type'] || '')
-        .split(';')[0]
-        .trim();
-      resolve({ buf: Buffer.concat(chunks), contentType });
     });
     req.on('error', reject);
   });
@@ -323,9 +300,19 @@ function createServer({
       return;
     }
 
-    if (route === 'GET /api/stt/config') {
-      const t = getTranscriber();
-      json(res, 200, { ok: true, enabled: t.enabled, provider: t.provider, model: t.model });
+    if (route === 'GET /api/transcribe/config') {
+      try {
+        const t = getTranscriber();
+        json(res, 200, {
+          ok: true,
+          enabled: t.enabled,
+          provider: t.provider,
+          model: t.model,
+          language: t.language,
+        });
+      } catch (err) {
+        json(res, 200, { ok: false, enabled: false, error: err.message });
+      }
       return;
     }
 
@@ -431,25 +418,43 @@ function createServer({
       return;
     }
 
-    if (route === 'POST /api/stt') {
-      readRawBody(req, MAX_AUDIO_BYTES)
-        .then(({ buf, contentType }) => {
-          const t = getTranscriber();
+    if (route === 'POST /api/transcribe') {
+      readJsonBody(req, Math.ceil(MAX_AUDIO_BYTES * 1.4))
+        .then((body) => {
+          let t;
+          try {
+            t = getTranscriber();
+          } catch (err) {
+            return json(res, 503, { ok: false, error: err.message });
+          }
           if (!t.enabled) {
             return json(res, 503, {
               ok: false,
-              error: 'Voice input is not configured. Add DEEPGRAM_API_KEY to .env to enable it.',
+              error: `Voice input is not configured. Set STT_PROVIDER and ${t.envKey} in .env to enable it.`,
             });
           }
-          if (!buf || buf.length === 0) {
+          const audio = typeof body.audio === 'string' ? Buffer.from(body.audio, 'base64') : null;
+          if (!audio || audio.length === 0) {
             return json(res, 400, { ok: false, error: 'No audio received.' });
           }
+          const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+          const contentType = typeof body.contentType === 'string' ? body.contentType : '';
+          const recordTrace = (record) => {
+            if (traceStore && sessionId) {
+              traceStore.recordCall({ sessionId, record: { label: 'stt', provider: t.provider, model: t.model, ...record } });
+            }
+          };
           return t
-            .transcribe({ audio: buf, contentType })
-            .then((text) => json(res, 200, { ok: true, text }))
-            .catch((err) =>
-              json(res, err.statusCode || 502, { ok: false, error: err.message })
-            );
+            .transcribe({ audio, contentType })
+            .then(({ transcript, costUsd }) => {
+              recordTrace({ success: true, costUsd });
+              json(res, 200, { ok: true, transcript });
+            })
+            .catch((err) => {
+              recordTrace({ success: false, error: String(err.message).slice(0, 300) });
+              logger.warn(`STT (${t.provider}) failed: ${err.message}`);
+              json(res, err.statusCode || 502, { ok: false, error: err.message });
+            });
         })
         .catch((err) => json(res, 400, { ok: false, error: err.message }));
       return;
