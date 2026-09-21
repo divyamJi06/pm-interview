@@ -67,6 +67,28 @@ function createTraceStore({ rootDir }) {
     }
   }
 
+  function readAnswers(sessionId) {
+    const p = path.join(dirFor(sessionId), 'answers.json');
+    if (!fs.existsSync(p)) return [];
+    try {
+      return JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function recordAnswer({ sessionId, record }) {
+    const dir = dirFor(sessionId);
+    fs.mkdirSync(dir, { recursive: true });
+    const all = readAnswers(sessionId);
+    all.push({ seq: all.length + 1, at: new Date().toISOString(), ...record });
+    try {
+      writeJson(path.join(dir, 'answers.json'), all);
+    } catch (err) {
+      console.error(`traceStore: failed to record answer for session ${sessionId}: ${err.message}`);
+    }
+  }
+
   function finalizeSession({ sessionId, outcome = 'finished' }) {
     const dir = dirFor(sessionId);
     const callsDir = path.join(dir, 'calls');
@@ -113,7 +135,7 @@ function createTraceStore({ rootDir }) {
     return summary;
   }
 
-  return { initSession, recordCall, finalizeSession, rootDir };
+  return { initSession, recordCall, recordAnswer, readAnswers, finalizeSession, rootDir };
 }
 
 module.exports = { createTraceStore, sanitizeName };

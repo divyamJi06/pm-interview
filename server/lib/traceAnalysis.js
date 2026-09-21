@@ -83,6 +83,17 @@ function listTraces(rootDir) {
     .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
 }
 
+function readAnswers(dir) {
+  const p = path.join(dir, 'answers.json');
+  if (!fs.existsSync(p)) return [];
+  try {
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return Array.isArray(raw) ? raw : [];
+  } catch (_) {
+    return [];
+  }
+}
+
 function loadCalls(callsDir) {
   if (!fs.existsSync(callsDir)) return [];
   const calls = fs
@@ -262,7 +273,27 @@ function readTrace(rootDir, sessionId) {
   const timeline = buildTimeline(calls);
   const stats = timelineStats(timeline);
   const verdict = summarizeSession(rootDir, sessionId).verdict;
-  return { sessionId, info, costs, calls, timeline, stats, verdict };
+  const answers = readAnswers(dir);
+  const answerByStage = {};
+  for (const a of answers) {
+    const key = a.stage || 'unknown';
+    const b = (answerByStage[key] = answerByStage[key] || { answers: 0, latencyMs: 0, costUsd: 0 });
+    b.answers += 1;
+    b.latencyMs += a.latencyMs || 0;
+    b.costUsd += a.costUsd || 0;
+  }
+  const answerStats = (() => {
+    if (answers.length === 0) return { answers: 0, avgLatencyMs: null, totalLatencyMs: 0, totalCostUsd: 0 };
+    const total = answers.reduce((s, a) => s + (a.latencyMs || 0), 0);
+    const cost = answers.reduce((s, a) => s + (a.costUsd || 0), 0);
+    return {
+      answers: answers.length,
+      avgLatencyMs: Math.round(total / answers.length),
+      totalLatencyMs: total,
+      totalCostUsd: Math.round(cost * 10000) / 10000,
+    };
+  })();
+  return { sessionId, info, costs, calls, timeline, stats, verdict, answers, answerByStage, answerStats };
 }
 
 module.exports = { listTraces, readTrace, buildTimeline, timelineStats, splitLabel, summarizeSession };

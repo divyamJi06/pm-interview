@@ -200,6 +200,15 @@ test('readTrace and listTraces read session files and sort newest first', (t) =>
     JSON.stringify({ outcome: 'failed', endedAt: '2026-09-12T09:05:00.000Z', totals: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 } })
   );
 
+  fs.writeFileSync(
+    path.join(root, idA, 'answers.json'),
+    JSON.stringify([
+      { seq: 1, stage: 'estimation', mode: 'practice', latencyMs: 8400, costUsd: 0.0051, state: 'question' },
+      { seq: 2, stage: 'estimation', mode: 'practice', latencyMs: 5200, costUsd: 0.0032, state: 'follow_up' },
+      { seq: 3, stage: 'product_design', mode: 'practice', latencyMs: 6100, costUsd: 0.0044, state: 'question' },
+    ])
+  );
+
   const list = ta.listTraces(root);
   assert.equal(list.length, 2, 'dirs that are not valid sessions are skipped');
   assert.equal(list[0].sessionId, idB, 'newest session first');
@@ -217,6 +226,16 @@ test('readTrace and listTraces read session files and sort newest first', (t) =>
   assert.equal(trace.timeline[0].type, 'question');
   assert.equal(trace.timeline[1].type, 'answer');
   assert.equal(trace.timeline[0].text, 'How big is the coffee market?');
+
+  assert.equal(trace.answers.length, 3);
+  assert.deepEqual(trace.answerStats, { answers: 3, avgLatencyMs: 6567, totalLatencyMs: 19700, totalCostUsd: 0.0127 });
+  assert.deepEqual(trace.answerByStage.estimation, { answers: 2, latencyMs: 13600, costUsd: 0.0083 });
+  assert.deepEqual(trace.answerByStage.product_design, { answers: 1, latencyMs: 6100, costUsd: 0.0044 });
+
+  const noAn = ta.readTrace(root, idB);
+  assert.equal(noAn.answers.length, 0);
+  assert.deepEqual(noAn.answerStats, { answers: 0, avgLatencyMs: null, totalLatencyMs: 0, totalCostUsd: 0 });
+  assert.deepEqual(noAn.answerByStage, {});
 
   const cls = ta.readTrace(root, 'not-a-real-session-id');
   assert.equal(cls, null);

@@ -263,6 +263,15 @@ function createServer({
     const answerText = body.answer.trim();
     const track = trackFor(session.trackId);
     const runDeps = deps(model, track);
+    const answeredAt = Date.now();
+    let answerCost = 0;
+    if (runDeps.traceStore && typeof runDeps.traceStore.recordCall === 'function') {
+      const inner = runDeps.traceStore.recordCall.bind(runDeps.traceStore);
+      runDeps.traceStore.recordCall = (arg) => {
+        answerCost += (arg && arg.record && arg.record.costUsd) || 0;
+        return inner(arg);
+      };
+    }
     const handle = async () => {
       const stageCfg = track.config.stages.find((s) => s.name === session.currentStageName) || { mode: 'none' };
       if (stageCfg.mode !== 'none') {
@@ -275,6 +284,21 @@ function createServer({
     };
     handle()
       .then(async (payload) => {
+        const latencyMs = Date.now() - answeredAt;
+        const costUsd = Math.round(answerCost * 10000) / 10000;
+        payload.answerMeta = { latencyMs, costUsd };
+        if (runDeps.traceStore && typeof runDeps.traceStore.recordAnswer === 'function') {
+          runDeps.traceStore.recordAnswer({
+            sessionId: session.id,
+            record: {
+              stage: session.currentStageName,
+              mode: session.mode,
+              latencyMs,
+              costUsd,
+              state: payload.state,
+            },
+          });
+        }
         store.saveSession(session.id);
         if (session.mode === 'practice' && session.candidateId) {
           const candidate = candidateStore.getCandidate(session.candidateId);
