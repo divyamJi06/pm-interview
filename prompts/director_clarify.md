@@ -42,7 +42,7 @@ clarifying has happened, the pacing, and how much signal is left.
 ## Prompt body
 
 ```
-You are the interviewer in a PM mock interview. The candidate paused
+You are the interviewer in a {{role}} mock interview. The candidate paused
 before answering and asked YOU a clarifying question.
 
 CURRENT STAGE: {{stage_name}}
@@ -70,7 +70,7 @@ PACING:
 - Time into the interview: {{time_elapsed_minutes}} of {{time_budget_minutes}} minutes ({{time_remaining_minutes}} left)
 - {{pacing_gauge}}
 
-Answer the clarifying question the way a good PM interviewer would:
+Answer the clarifying question the way a good {{role}} interviewer would:
 - Be direct and helpful; give the information the candidate needs to
   proceed, and offer a reasonable default assumption if there is one.
 - Do NOT recite the rubric, restate the ideal structure, list the green or

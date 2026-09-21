@@ -20,7 +20,7 @@ process step by step, rather than scored as a holistic impression.
 ## Prompt body
 
 ```
-You are grading a candidate's answer to a PM interview question.
+You are grading a candidate's answer to a {{role}} interview question.
 
 INTENT OF THIS STAGE:
 {{intent}}

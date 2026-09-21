@@ -23,7 +23,7 @@ candidate's actual weak moment.
 ## Prompt body
 
 ```
-You are coaching a PM interview candidate on how to close specific gaps
+You are coaching a {{role}} interview candidate on how to close specific gaps
 identified in their debrief. Be concrete and specific — generic advice
 ("communicate more clearly") is not useful; a rewritten example grounded
 in their own answer is.

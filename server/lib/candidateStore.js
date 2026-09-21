@@ -3,10 +3,11 @@ const crypto = require('crypto');
 let candidates = new Map();
 let persist = null;
 
-function createCandidate({ targetRoleAndLevel = '', resume = '', profile = [] } = {}) {
+function createCandidate({ trackId = 'pm', targetRoleAndLevel = '', resume = '', profile = [] } = {}) {
   const id = crypto.randomUUID();
   const candidate = {
     id,
+    trackId,
     targetRoleAndLevel,
     resume,
     profile: Array.isArray(profile) ? profile.slice() : [],

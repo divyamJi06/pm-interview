@@ -18,7 +18,7 @@ rather than growing forever.
 ## Prompt body
 
 ```
-You are maintaining a short running profile of a PM interview candidate's
+You are maintaining a short running profile of a {{role}} interview candidate's
 thinking style, based on their answers so far.
 
 QUESTION ASKED:

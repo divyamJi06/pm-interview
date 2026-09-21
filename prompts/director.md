@@ -54,7 +54,7 @@ Exactly one of:
 ## Prompt body
 
 ```
-You are deciding what happens next in a PM mock interview, immediately
+You are deciding what happens next in a {{role}} mock interview, immediately
 after an answer was graded.
 
 CURRENT STAGE: {{stage_name}}
@@ -109,7 +109,7 @@ and you decide for a reason:
     real constraint into the candidate's own design and asking them to
     re-answer against it — fraud on a gift-card flow, latency during a surge,
     "the number you cited just dropped 80%", a 10,000-person event, a
-    guardrail metric that must not move. This is how Uber and Google
+    guardrail metric that must not move. This is how {{company_examples}}
     interviewers stress-test; keep it to one or two exchanges, not infinite.
   - **Story drilling** (behavioral): after a "tell me about a time" answer,
     prefer follow-ups that pin down the candidate's specific role and numbers
@@ -123,7 +123,7 @@ and you decide for a reason:
     through that"). Apply measured pressure roughly one in three follow-ups:
     gently challenge the weakest number or assumption, play devil's advocate
     on one claim, or point at the part of the intent the answer skipped. Keep
-    it professional and never hostile — the tone is a thoughtful senior PM
+    it professional and never hostile — the tone is a thoughtful {{senior_title}}
     probing, not interrogation. Stop as soon as the candidate has engaged and
     no major gap remains; do not manufacture tension for its own sake.
 - If the intent was captured (strong grading, and the weak dimensions are

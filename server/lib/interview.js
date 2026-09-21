@@ -3,6 +3,7 @@ const { fillTemplate } = require('./promptFiller');
 const { loadStage } = require('./loadStage');
 const { loadResourceBank, formatResourceBank } = require('./resourceBank');
 const { userError } = require('./userError');
+const { DEFAULT_TOKENS } = require('../config/tracks');
 const coach = require('./coach');
 
 const MAX_TURNS_PER_STAGE = 10;
@@ -30,8 +31,12 @@ function makeDeps({
   traceStore,
   resourceBankReader = loadResourceBank,
   resourceBankFormatter = formatResourceBank,
+  trackTokens = DEFAULT_TOKENS,
 }) {
-  return { callModel, config, loadStage: loadStageFn, promptReader, templateFiller, rng, traceStore, resourceBankReader, resourceBankFormatter };
+  const tf = templateFiller === fillTemplate
+    ? (template, data) => fillTemplate(template, { ...trackTokens, ...data })
+    : templateFiller;
+  return { callModel, config, loadStage: loadStageFn, promptReader, templateFiller: tf, rng, traceStore, resourceBankReader, resourceBankFormatter, trackTokens };
 }
 
 function callTraced({ deps, session, label, prompt, opts = {} }) {
@@ -232,7 +237,8 @@ async function synthesizeCurrentStageIfNeeded({ session, deps }) {
 
 async function runInterviewSynthesizer({ session, deps }) {
   const filled = deps.templateFiller(deps.promptReader('synthesizer_interview'), {
-    candidate_target_role_and_level: session.targetRoleAndLevel || '(general PM role)',
+    ...deps.trackTokens,
+    candidate_target_role_and_level: session.targetRoleAndLevel || `(general ${deps.trackTokens.role_lower} role)`,
     all_stage_verdicts: JSON.stringify(session.stageVerdicts, null, 2),
     final_candidate_profile: formatProfile(session.profile),
     resource_bank: deps.resourceBankFormatter(deps.resourceBankReader()),
@@ -248,7 +254,8 @@ async function runDebrief({ candidate, deps }) {
     stageVerdicts: candidate.stageVerdicts || [],
   };
   const filled = deps.templateFiller(deps.promptReader('synthesizer_interview'), {
-    candidate_target_role_and_level: sessionLike.targetRoleAndLevel || '(general PM role)',
+    ...deps.trackTokens,
+    candidate_target_role_and_level: sessionLike.targetRoleAndLevel || `(general ${deps.trackTokens.role_lower} role)`,
     all_stage_verdicts: JSON.stringify(sessionLike.stageVerdicts, null, 2),
     final_candidate_profile: formatProfile(sessionLike.profile),
     resource_bank: deps.resourceBankFormatter(deps.resourceBankReader()),
@@ -356,6 +363,7 @@ async function runCoachTraced({ session, deps, debriefOutput, candidateProfile, 
     candidateProfile,
     transcriptExcerpts,
     coachingBank,
+    tokens: deps.trackTokens,
   });
 }
 

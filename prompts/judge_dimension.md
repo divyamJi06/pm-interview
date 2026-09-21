@@ -29,7 +29,7 @@ walked through as a checklist.
 ## Prompt body
 
 ```
-You are grading a candidate's answer to a PM interview question.
+You are grading a candidate's answer to a {{role}} interview question.
 
 INTENT OF THIS STAGE:
 {{intent}}

@@ -6,12 +6,16 @@ const { loadEnvIntoProcess } = require('./lib/loadEnv');
 loadEnvIntoProcess();
 
 const { loadStageOrder } = require('./config/stageOrder');
+const { getTrack, listTracks } = require('./config/tracks');
+const { loadStage } = require('./lib/loadStage');
+const { loadResourceBank } = require('./lib/resourceBank');
 const { createCallModel, DEFAULT_PROVIDER } = require('./lib/callModel');
 const { createTranscriber } = require('./lib/transcribe');
 const { createTraceStore } = require('./lib/traceStore');
 const { createSessionFileStore } = require('./lib/sessionFileStore');
 const { createCandidateFileStore } = require('./lib/candidateFileStore');
 const { isUserError } = require('./lib/userError');
+const { fillTemplate } = require('./lib/promptFiller');
 const traceAnalysis = require('./lib/traceAnalysis');
 const store = require('./lib/sessionStore');
 const candidateStore = require('./lib/candidateStore');
@@ -81,11 +85,12 @@ function activeSessionSummary(s) {
     answers: [...s.triples.values()].reduce((n, arr) => n + arr.length, 0),
     startedAt: new Date(s.createdAt).toISOString(),
     awaiting: s.awaiting,
+    track: s.trackId || 'pm',
   };
 }
 
 function createServer({
-  config = loadStageOrder(),
+  config = null,
   callModel,
   transcriber = null,
   rng = Math.random,
@@ -113,8 +118,26 @@ function createServer({
     return liveCallModel;
   }
 
-  const deps = (model) => {
-    const base = { callModel: model, config, rng };
+  function trackFor(trackId) {
+    const track = getTrack(trackId);
+    if (config) return { ...track, config };
+    return track;
+  }
+
+  const deps = (model, trackRecord) => {
+    const resolved = trackRecord || trackFor('pm');
+    const stageCfgFor = (name) => resolved.config.stages.find((s) => s.name === name);
+    const base = {
+      callModel: model,
+      config: resolved.config,
+      trackTokens: resolved.tokens,
+      templateFiller: (template, data) => fillTemplate(template, { ...resolved.tokens, ...data }),
+      rng,
+    };
+    if (resolved.stagesDir) {
+      base.loadStageFn = (name) => loadStage(name, { dataDir: resolved.stagesDir, mode: (stageCfgFor(name) || {}).mode });
+    }
+    if (resolved.resourcesDir) base.resourceBankReader = () => loadResourceBank({ dataDir: resolved.resourcesDir });
     if (traceStore) base.traceStore = traceStore;
     return interview.makeDeps(base);
   };
@@ -128,18 +151,19 @@ function createServer({
     return model;
   }
 
-  function stagesSummary() {
+  function stagesSummary(cfg) {
     return {
-      stages: config.stages.map((s) => ({ name: s.name, minQuestions: s.minQuestions, mode: s.mode })),
-      feedbackTiming: config.feedbackTiming,
-      timeBudgetMinutes: config.timeBudgetMinutes,
-      roundBudgetMinutes: config.roundBudgetMinutes,
-      clarifyCapPerQuestion: config.clarifyCapPerQuestion,
+      stages: cfg.stages.map((s) => ({ name: s.name, minQuestions: s.minQuestions, mode: s.mode })),
+      feedbackTiming: cfg.feedbackTiming,
+      timeBudgetMinutes: cfg.timeBudgetMinutes,
+      roundBudgetMinutes: cfg.roundBudgetMinutes,
+      clarifyCapPerQuestion: cfg.clarifyCapPerQuestion,
     };
   }
 
   async function runCandidateDebrief(model, candidate) {
-    const runDeps = deps(model);
+    const track = trackFor(candidate.trackId);
+    const runDeps = deps(model, track);
     const sessionLike = { id: `debrief-${candidate.id || 'candidate'}` };
     const report = await interview.runDebrief({ candidate, deps: runDeps });
     let coachResult = { action_plan: [], priority_order: [] };
@@ -171,7 +195,8 @@ function createServer({
     if (!model) return;
     const mode = body.mode === 'practice' ? 'practice' : 'mock';
     const practiceStage = body.stage || null;
-    if (mode === 'practice' && !config.stages.some((s) => s.name === practiceStage)) {
+    const track = trackFor(typeof body.track === 'string' ? body.track : 'pm');
+    if (mode === 'practice' && !track.config.stages.some((s) => s.name === practiceStage)) {
       return json(res, 400, { ok: false, error: `Unknown stage '${practiceStage}'.` });
     }
 
@@ -185,6 +210,7 @@ function createServer({
         }
       } else {
         candidate = candidateStore.createCandidate({
+          trackId: track.id,
           targetRoleAndLevel: typeof body.targetRole === 'string' ? body.targetRole : '',
           resume: typeof body.resume === 'string' ? body.resume.trim().slice(0, MAX_RESUME_CHARS) : '',
         });
@@ -204,6 +230,7 @@ function createServer({
         : '';
 
     const session = store.createSession({
+      trackId: track.id,
       mode,
       practiceStage,
       candidateId: candidate ? candidate.id : null,
@@ -214,8 +241,8 @@ function createServer({
     if (candidate && candidate.profile.length) {
       session.profile = candidate.profile.slice();
     }
-    const payload = interview.begin(session, deps(model));
-    payload.candidate = rounds.candidatePayload(candidate, config);
+    const payload = interview.begin(session, deps(model, track));
+    payload.candidate = rounds.candidatePayload(candidate, track.config);
     store.saveSession(session.id);
     return json(res, 200, payload);
   }
@@ -234,9 +261,10 @@ function createServer({
       return json(res, 409, { ok: false, error: 'This session is not waiting for an answer.' });
     }
     const answerText = body.answer.trim();
-    const runDeps = deps(model);
+    const track = trackFor(session.trackId);
+    const runDeps = deps(model, track);
     const handle = async () => {
-      const stageCfg = config.stages.find((s) => s.name === session.currentStageName) || { mode: 'none' };
+      const stageCfg = track.config.stages.find((s) => s.name === session.currentStageName) || { mode: 'none' };
       if (stageCfg.mode !== 'none') {
         const kind = await interview.classifyTurn({ deps: runDeps, session, text: answerText });
         if (kind === 'clarify') {
@@ -254,7 +282,7 @@ function createServer({
             if (payload.state === 'final_report') {
               rounds.mergeSessionIntoCandidate(candidate, session);
               candidateStore.saveCandidate(candidate.id);
-              const cov = rounds.coverage(candidate, config);
+              const cov = rounds.coverage(candidate, track.config);
               if (cov.done) {
                 if (candidate.debriefReport) {
                   payload.debrief = candidate.debriefReport;
@@ -263,7 +291,7 @@ function createServer({
                 }
               }
             }
-            payload.candidate = rounds.candidatePayload(candidate, config);
+            payload.candidate = rounds.candidatePayload(candidate, track.config);
           }
         }
         json(res, 200, payload);
@@ -290,13 +318,34 @@ function createServer({
       return;
     }
 
+    const STATIC_EXT = new Set(['css', 'js', 'svg', 'png', 'ico']);
+    if (req.method === 'GET' && /^\/[A-Za-z0-9._-]+$/.test(url.pathname)) {
+      const filePath = path.join(publicDir, path.basename(url.pathname));
+      const ext = path.extname(filePath).slice(1).toLowerCase();
+      if (STATIC_EXT.has(ext) && fs.existsSync(filePath)) {
+        const types = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', svg: 'image/svg+xml', png: 'image/png', ico: 'image/x-icon' };
+        fs.readFile(filePath, (err, data) => {
+          if (err) return json(res, 500, { ok: false, error: 'static file error' });
+          res.writeHead(200, { 'content-type': types[ext], 'cache-control': 'no-store' });
+          res.end(data);
+        });
+        return;
+      }
+    }
+
     if (route === 'GET /api/health') {
       json(res, 200, { ok: true });
       return;
     }
 
     if (route === 'GET /api/stages') {
-      json(res, 200, { ok: true, ...stagesSummary() });
+      const track = trackFor(url.searchParams.get('track') || 'pm');
+      json(res, 200, { ok: true, track: track.id, ...stagesSummary(track.config) });
+      return;
+    }
+
+    if (route === 'GET /api/tracks') {
+      json(res, 200, { ok: true, tracks: listTracks() });
       return;
     }
 
@@ -342,9 +391,10 @@ function createServer({
       if (!session || session.awaiting !== 'answer') {
         return json(res, 404, { ok: false, error: 'Active session not found.' });
       }
-      const payload = interview.resume(session, deps(null));
+      const track = trackFor(session.trackId);
+      const payload = interview.resume(session, deps(null, track));
       const candidate = session.candidateId ? candidateStore.getCandidate(session.candidateId) : null;
-      if (candidate) payload.candidate = rounds.candidatePayload(candidate, config);
+      if (candidate) payload.candidate = rounds.candidatePayload(candidate, track.config);
       return json(res, 200, payload);
     }
 
@@ -358,7 +408,7 @@ function createServer({
     if (route === 'GET /api/candidates') {
       const list = candidateStore
         .list()
-        .map((c) => rounds.candidatePayload(c, config))
+        .map((c) => rounds.candidatePayload(c, trackFor(c.trackId).config))
         .filter(Boolean)
         .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       json(res, 200, { ok: true, candidates: list });
@@ -371,7 +421,7 @@ function createServer({
       if (!candidate) {
         return json(res, 404, { ok: false, error: 'Candidate not found.' });
       }
-      return json(res, 200, { ok: true, candidate: rounds.candidateDetailPayload(candidate, config) });
+      return json(res, 200, { ok: true, candidate: rounds.candidateDetailPayload(candidate, trackFor(candidate.trackId).config) });
     }
 
     if (route === 'POST /api/candidates') {
@@ -379,11 +429,13 @@ function createServer({
         .then((body) => {
           const model = ensureModel(res);
           if (!model) return;
+          const track = trackFor(typeof body.track === 'string' ? body.track : 'pm');
           const candidate = candidateStore.createCandidate({
+            trackId: track.id,
             targetRoleAndLevel: typeof body.targetRole === 'string' ? body.targetRole : '',
             resume: typeof body.resume === 'string' ? body.resume.trim().slice(0, MAX_RESUME_CHARS) : '',
           });
-          return json(res, 200, { ok: true, candidate: rounds.candidatePayload(candidate, config) });
+          return json(res, 200, { ok: true, candidate: rounds.candidatePayload(candidate, track.config) });
         })
         .catch((err) => json(res, 400, { ok: false, error: err.message }));
       return;
@@ -398,9 +450,10 @@ function createServer({
           if (!candidate) {
             return json(res, 404, { ok: false, error: 'Candidate not found.' });
           }
+          const track = trackFor(candidate.trackId);
           runCandidateDebrief(model, candidate)
             .then((debrief) =>
-              json(res, 200, { ok: true, debrief, candidate: rounds.candidatePayload(candidate, config) })
+              json(res, 200, { ok: true, debrief, candidate: rounds.candidatePayload(candidate, track.config) })
             )
             .catch((err) => {
               logger.error('debrief failed:', err);

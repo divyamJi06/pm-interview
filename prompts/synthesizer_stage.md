@@ -14,7 +14,7 @@ that stage and writes a single verdict for the stage as a whole.
 ## Prompt body
 
 ```
-You are writing a stage-level verdict for a PM mock interview candidate,
+You are writing a stage-level verdict for a {{role}} mock interview candidate,
 based on everything that happened in this one stage.
 
 STAGE: {{stage_name}}

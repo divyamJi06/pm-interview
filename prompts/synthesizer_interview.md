@@ -16,7 +16,7 @@ profile to find patterns no single stage verdict would show on its own.
 ## Prompt body
 
 ```
-You are writing the final overall assessment for a PM mock interview
+You are writing the final overall assessment for a {{role}} mock interview
 candidate, based on how they did across every stage.
 
 CANDIDATE IS INTERVIEWING FOR: {{candidate_target_role_and_level}}

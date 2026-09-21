@@ -1,5 +1,6 @@
 const { loadPrompt } = require('./prompts');
 const { fillTemplate } = require('./promptFiller');
+const { DEFAULT_TOKENS } = require('../config/tracks');
 
 function formatCandidateProfile(profile) {
   return Array.isArray(profile) && profile.length ? profile.join('\n') : '(none so far)';
@@ -35,8 +36,9 @@ function formatTranscriptExcerpts(entries) {
   return parts.length ? parts.join('\n\n') : '(no transcript excerpts available)';
 }
 
-function buildCoachPrompt({ debriefOutput, candidateProfile, transcriptExcerpts, coachingBank }) {
+function buildCoachPrompt({ debriefOutput, candidateProfile, transcriptExcerpts, coachingBank, tokens = DEFAULT_TOKENS }) {
   return fillTemplate(loadPrompt('coach'), {
+    ...tokens,
     verdict_and_gaps:
       typeof debriefOutput === 'string'
         ? debriefOutput
@@ -47,8 +49,8 @@ function buildCoachPrompt({ debriefOutput, candidateProfile, transcriptExcerpts,
   });
 }
 
-async function runCoach({ call, debriefOutput, candidateProfile, transcriptExcerpts, coachingBank }) {
-  const prompt = buildCoachPrompt({ debriefOutput, candidateProfile, transcriptExcerpts, coachingBank });
+async function runCoach({ call, debriefOutput, candidateProfile, transcriptExcerpts, coachingBank, tokens = DEFAULT_TOKENS }) {
+  const prompt = buildCoachPrompt({ debriefOutput, candidateProfile, transcriptExcerpts, coachingBank, tokens });
   const parsed = await call(prompt, { overrideMaxTokens: 8192 });
   return {
     action_plan: Array.isArray(parsed.action_plan) ? parsed.action_plan : [],

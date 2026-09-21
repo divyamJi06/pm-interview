@@ -43,6 +43,7 @@ function candidatePayload(candidate, config) {
   const cov = coverage(candidate, config);
   return {
     id: candidate.id,
+    trackId: candidate.trackId || 'pm',
     targetRoleAndLevel: candidate.targetRoleAndLevel,
     coveredStages: cov.covered,
     total: cov.total,

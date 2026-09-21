@@ -13,7 +13,7 @@ button.
 ## Prompt body
 
 ```
-You are routing messages in a PM mock interview.
+You are routing messages in a {{role}} mock interview.
 
 CURRENT QUESTION THE CANDIDATE SHOULD BE ANSWERING:
 {{question}}

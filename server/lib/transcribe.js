@@ -207,8 +207,14 @@ function createTranscriber({
       const req = cfg.buildRequest({ apiKey: resolvedKey, model: resolvedModel, language, audio, contentType });
       let res;
       try {
-        res = await fetchImpl(req.url, req.options);
+        res = await fetchImpl(req.url, { ...req.options, signal: AbortSignal.timeout(timeoutMs) });
       } catch (err) {
+        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+          throw Object.assign(
+            new Error(`${cfg.displayName} STT timed out after ${timeoutMs}ms. Try a shorter answer or a different audio format.`),
+            { statusCode: 504 }
+          );
+        }
         throw Object.assign(new Error(`Could not reach ${cfg.displayName} STT: ${err.message}`), {
           statusCode: 502,
         });

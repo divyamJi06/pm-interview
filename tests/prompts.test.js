@@ -20,6 +20,11 @@ test('fillTemplate substitutes missing values with (empty) instead of leaking sy
   assert.equal(out, 'x=(empty)');
 });
 
+test('fillTemplate matches keys case-insensitively ignoring brackets and underscores', () => {
+  const out = fillTemplate('{{ideal_structure}}/{{scoring_dimensions}}', { idealStructure: 'shape', scoring_dimensions: 'dims' });
+  assert.equal(out, 'shape/dims');
+});
+
 test('loadPrompt extracts only the fenced prompt body', () => {
   const body = loadPrompt('judge_dimension');
   assert.ok(body.includes('You are grading a candidate'));

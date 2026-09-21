@@ -31,10 +31,11 @@ function deserializeSession(data) {
   return session;
 }
 
-function createSession({ mode, practiceStage = null, targetRoleAndLevel = '', resume = '', candidateId = null, feedbackMode = 'full' } = {}) {
+function createSession({ trackId = 'pm', mode, practiceStage = null, targetRoleAndLevel = '', resume = '', candidateId = null, feedbackMode = 'full' } = {}) {
   const id = crypto.randomUUID();
   const session = {
     id,
+    trackId,
     mode,
     practiceStage,
     candidateId,
