@@ -61,7 +61,7 @@ const PROVIDERS = {
       max_tokens: maxTokens,
       temperature,
       messages: [{ role: 'user', content: prompt }],
-      ...(isCohereReasoningModel(model) && thinkingTokenBudget
+      ...(isCohereReasoningModel(model) && thinkingTokenBudget > 0
         ? { thinking: { token_budget: thinkingTokenBudget } }
         : {}),
     }),
@@ -185,7 +185,7 @@ function createCallModel({
     );
   }
 
-  return async function callModel(prompt, { overrideMaxTokens, overrideTemperature, label = 'model_call', onCall } = {}) {
+  return async function callModel(prompt, { overrideMaxTokens, overrideTemperature, thinkTokens, label = 'model_call', onCall } = {}) {
     const maxAttempts = Math.max(1, retries + 1);
     let lastErr = null;
 
@@ -215,7 +215,7 @@ function createCallModel({
           maxTokens: overrideMaxTokens || maxTokens,
           temperature: overrideTemperature !== undefined ? overrideTemperature : temperature,
           prompt,
-          thinkingTokenBudget,
+          thinkingTokenBudget: thinkTokens !== undefined ? thinkTokens : thinkingTokenBudget,
         });
         record.requestBody = body;
         const headers = {

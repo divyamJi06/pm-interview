@@ -22,7 +22,6 @@ function makeCallModel(prompts, options = {}) {
   return async function callModel(prompt) {
     prompts.push(prompt);
     if (prompt.includes('You are grading a candidate')) return judgeOutput();
-    if (prompt.includes('maintaining a short running profile')) return { updated_profile: ['clarity first'] };
     if (prompt.includes('deciding what happens next')) {
       const asked = /Questions asked: (\d+) \/ (\d+)/.exec(prompt);
       const last = /IS THIS THE LAST STAGE OF THE INTERVIEW:\s*(\w+)/.exec(prompt);

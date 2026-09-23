@@ -192,28 +192,14 @@ async function runJudge({ session, stage, question, answer, deps }) {
     answer,
     candidate_profile: formatProfile(session.profile),
     candidate_clarifications: formatClarifications(session.pendingClarifications),
-  });
-  return callTraced({ deps, session, label: `judge-${stage.name}`, prompt: filled, opts: { overrideMaxTokens: 8192 } });
-}
-
-async function runProfileWriter({ session, question, answer, judge, deps }) {
-  const filled = deps.templateFiller(deps.promptReader('profile_writer'), {
-    question,
-    answer,
-    judge_output: JSON.stringify(judge),
-    existing_profile: formatProfile(session.profile),
     candidate_resume: formatResume(session.resume),
   });
-  const result = await callTraced({
-    deps,
-    session,
-    label: `profile-${session.currentStageName || 'unknown'}`,
-    prompt: filled,
-    opts: { overrideMaxTokens: 8192 },
-  });
-  if (Array.isArray(result.updated_profile)) {
-    session.profile = result.updated_profile.slice(-12);
+  const result = await callTraced({ deps, session, label: `judge-${stage.name}`, prompt: filled, opts: { overrideMaxTokens: 4096 } });
+  const { updated_profile, ...judge } = result && typeof result === 'object' ? result : {};
+  if (Array.isArray(updated_profile)) {
+    session.profile = updated_profile.slice(-12);
   }
+  return judge;
 }
 
 async function runStageSynthesizer({ session, stage, deps }) {
@@ -503,7 +489,7 @@ async function runAiDirector({ session, stage, judge, deps }) {
     candidate_profile: formatProfile(session.profile),
     is_last_stage: isLastStage(session, deps) ? 'true' : 'false',
   });
-  const result = await callTraced({ deps, session, label: `director-${stage.name}`, prompt: filled });
+  const result = await callTraced({ deps, session, label: `director-${stage.name}`, prompt: filled, opts: { thinkTokens: 512 } });
   return {
     decision: result.decision,
     followUpQuestion: result.follow_up_question || null,
@@ -539,7 +525,6 @@ async function processAnswer({ session, answerText, deps }) {
 
   if (stage.mode !== 'none' && stage.rubric) {
     judge = await runJudge({ session, stage, question: current.text, answer: answerText, deps });
-    await runProfileWriter({ session, question: current.text, answer: answerText, judge, deps });
   }
 
   triples.push({
@@ -668,7 +653,7 @@ async function processClarify({ session, clarifyText, deps }) {
     time_remaining_minutes: pacing.remaining,
     pacing_gauge: pacing.label,
   });
-  const result = await callTraced({ deps, session, label: `director-clarify-${stage.name}`, prompt: filled });
+  const result = await callTraced({ deps, session, label: `director-clarify-${stage.name}`, prompt: filled, opts: { thinkTokens: 0 } });
   const interviewerAnswer = result.answer || '(no answer given)';
   const wrapUp = result.wrap_up === true && session.pendingClarifications.length >= MIN_CLARIFY_BEFORE_WRAP;
   session.pendingClarifications.push({
@@ -698,7 +683,7 @@ async function classifyTurn({ deps, session, text }) {
     message: trimmed,
   });
   try {
-    const result = await callTraced({ deps, session, label: 'classify-turn', prompt: filled });
+    const result = await callTraced({ deps, session, label: 'classify-turn', prompt: filled, opts: { thinkTokens: 0 } });
     return result.type === 'clarify' ? 'clarify' : 'answer';
   } catch {
     return trimmed.includes('?') ? 'clarify' : 'answer';

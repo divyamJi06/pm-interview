@@ -1,4 +1,9 @@
-# Profile-writer
+# Profile-writer (superseded)
+
+> Superseded by `judge_dimension.md` / `judge_checklist.md`. The judge prompt
+> now writes `updated_profile` directly in the same call, so there is no
+> separate profile-writer model call. Kept on disk only for reference; nothing
+> loads this template anymore.
 
 Runs after every graded answer. Writes one short, plain-language note
 about how the candidate thinks — not a re-statement of the score — and

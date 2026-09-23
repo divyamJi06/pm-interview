@@ -19,7 +19,6 @@ function judgeOutput(verdict = 'developing') {
 function makeCallModel(policy = 'per_question_probe') {
   return async function callModel(prompt) {
     if (prompt.includes('You are grading a candidate')) return judgeOutput();
-    if (prompt.includes('maintaining a short running profile')) return { updated_profile: ['structured'] };
     if (prompt.includes('deciding what happens next')) {
       if (policy === 'next_question_forever') {
         return { decision: 'next_question', reasoning: 'keep going' };

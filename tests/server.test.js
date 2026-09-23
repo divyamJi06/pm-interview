@@ -19,6 +19,7 @@ function judgeOutput(isChecklist) {
     red_flags_hit: [],
     summary: 'Solid, structured answer.',
     overall_verdict: 'strong',
+    updated_profile: ['tests assumptions before committing'],
   };
 }
 
@@ -55,9 +56,6 @@ function makeMockCallModel() {
       }
       if (prompt.includes('You are grading a candidate')) {
         return judgeOutput(prompt.includes('IDEAL PROCESS'));
-      }
-      if (prompt.includes('maintaining a short running profile')) {
-        return { updated_profile: ['tests assumptions before committing'] };
       }
       if (prompt.includes('deciding what happens next')) {
         return directorDecision(prompt);
@@ -336,7 +334,7 @@ test('a clarifying question is auto-detected, answered, and fed to the judge', a
   assert.match(judgePrompt, /What population should I assume/);
 });
 
-test('an optional resume is fed to the profile agent and truncated to the cap', async (t) => {
+test('an optional resume is fed to the judge and truncated to the cap', async (t) => {
   const mock = makeMockCallModel();
   const { server, base } = await boot(mock);
   t.after(() => server.close());
@@ -353,13 +351,12 @@ test('an optional resume is fed to the profile agent and truncated to the cap', 
   const answer = await post(base, '/api/answer', { sessionId, answer: 'My structured answer.' });
   assert.equal(answer.status, 200);
 
-  const profilePrompt = mock.prompts.find((p) => p.includes('maintaining a short running profile'));
-  assert.ok(profilePrompt, 'the profile agent ran');
-  assert.ok(profilePrompt.includes("CANDIDATE'S RESUME / BACKGROUND"), 'profile prompt has the resume section');
-  assert.ok(profilePrompt.includes('Led payments at a fintech'), 'resume content reaches the profile agent');
-  assert.ok(profilePrompt.includes('Grew team from 3 to 8'), 'head of the resume is kept intact');
-  assert.ok(profilePrompt.includes('Z'.repeat(7900)), 'resume is present up to the 8000-char cap, minus the head');
-  assert.ok(!profilePrompt.includes('Z'.repeat(9000)), 'resume past the cap is dropped');
+  const judgePrompt = mock.prompts.find((p) => p.includes('You are grading a candidate'));
+  assert.ok(judgePrompt.includes("CANDIDATE'S RESUME / BACKGROUND"), 'judge prompt has the resume section');
+  assert.ok(judgePrompt.includes('Led payments at a fintech'), 'resume content reaches the judge');
+  assert.ok(judgePrompt.includes('Grew team from 3 to 8'), 'head of the resume is kept intact');
+  assert.ok(judgePrompt.includes('Z'.repeat(7900)), 'resume is present up to the 8000-char cap, minus the head');
+  assert.ok(!judgePrompt.includes('Z'.repeat(9000)), 'resume past the cap is dropped');
 });
 
 test('when the interviewer asks for the answer, further clarifications are refused', async (t) => {

@@ -73,19 +73,20 @@ test('synthesizer_interview exposes a resource_bank slot and the recommended_res
   assert.ok(filled.includes('STATISTICS: Thinking in Bets'));
 });
 
-test('profile_writer exposes a candidate_resume slot that fills cleanly', () => {
-  const body = loadPrompt('profile_writer');
-  assert.ok(body.includes('{{candidate_resume}}'));
-  assert.ok(body.includes('fold the most relevant ones into the running profile'));
-  const filled = fillTemplate(body, {
-    question: 'q',
-    answer: 'a',
-    judge_output: '{}',
-    existing_profile: '[]',
-    candidate_resume: 'Led payments at a fintech.',
-  });
-  assert.ok(filled.includes('Led payments at a fintech.'));
-  assert.ok(!/\{\{/.test(filled), 'filled prompt must not leak placeholders');
+test('judge prompts expose a candidate_resume slot and the updated_profile output', () => {
+  for (const name of ['judge_dimension', 'judge_checklist']) {
+    const body = loadPrompt(name);
+    assert.ok(body.includes('{{candidate_resume}}'), name);
+    assert.ok(body.includes('updated_profile'), name);
+    assert.ok(body.includes('not a restatement of the verdict or score'), name);
+    const filled = fillTemplate(body, {
+      intent: 'i', idealStructure: 's', scoringDimensions: 'dims', greenFlags: 'g', redFlags: 'r',
+      question: 'q', answer: 'a', candidate_profile: '[]', candidate_clarifications: '(none)',
+      candidate_resume: 'Led payments at a fintech.',
+    });
+    assert.ok(filled.includes('Led payments at a fintech.'), name);
+    assert.ok(!/\{\{/.test(filled), `${name} filled prompt must not leak placeholders`);
+  }
 });
 
 test('director prompt includes the real-interview follow-up playbooks', () => {
