@@ -15,7 +15,7 @@ function dirFor(rootDir, sessionId) {
 
 function splitLabel(label) {
   if (label === 'classify-turn') return { role: 'classify', stage: '' };
-  const m = /^(judge|director-clarify|director|profile|synthesizer-stage|synthesizer-interview|coach|stt)(?:-(.+))?$/.exec(label || '');
+  const m = /^(judge|director-clarify|director|profile|synthesizer-stage|synthesizer-interview|coach|stt|tts)(?:-(.+))?$/.exec(label || '');
   if (!m) return { role: 'model_call', stage: '' };
   return { role: m[1], stage: m[2] || '' };
 }
@@ -226,6 +226,11 @@ function buildTimeline(calls) {
           ? `Action plan for ${plan.length} gap${plan.length > 1 ? 's' : ''}: ${plan.map((g) => g.gap || '').join('; ')}`
           : 'Coach produced an empty action plan.',
       });
+      continue;
+    }
+
+    if (c.role === 'tts') {
+      events.push({ type: 'tts', label: 'tts', text: normalizeWs(String(c.prompt || '')) });
       continue;
     }
 

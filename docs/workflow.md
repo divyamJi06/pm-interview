@@ -172,3 +172,78 @@ tokens bill at the output-token rate.
   `data/traces/<sessionId>/answers.json` (`traceStore.recordAnswer`).
 - The review tab aggregates both: "Latency per stage" (`answerByStage`) and
   summary chips (`answerStats`), served by `GET /api/traces/:id`.
+
+## 6. Voice mode
+
+Single toggle, **on by default**, shared by practice and mock modes. Enabled =
+interviewer questions are spoken aloud and the answer textbox is hidden; the
+candidate answers with the microphone and the transcript is auto-submitted.
+
+- Answer input is unchanged server-side: the mic records → `POST /api/transcribe`
+  (STT) → the transcript is sent to `POST /api/answer` as normal text. A
+  `classify-turn`/`clarify` answer routed to `processClarify` needs no special
+  handling.
+- A `voice-mode` value is kept in `localStorage` (`on` is the default when the
+  key is absent). `setVoiceMode` toggles `#inputbar.voice-on`, which hides the
+  textarea and Send button and stretches the mic button to fill the bar.
+- Interviewer speech (questions, follow-ups, clarification answers) is spoken
+  through the TTS adapter in `public/index.html` when voice mode is on. Stage
+  banners and the final report stay as text.
+
+### TTS adapter
+
+`server/lib/speech.js` mirrors the STT provider pattern. `speak({ text })`
+returns `{ audio, contentType, costUsd }`; OpenAI models are priced from the
+published per-million-character rate (`PRICING`), Deepgram Aura is billed per
+package so it records `costUsd: null`. Text is capped at `MAX_TTS_CHARS`
+(2000) characters.
+
+| Provider | Env key | Model env | Default model | Voice env | Default voice |
+|---|---|---|---|---|---|
+| `deepgram` | `DEEPGRAM_API_KEY` | `DEEPGRAM_TTS_MODEL` | `aura-2-en-default` | `TTS_VOICE` | model name |
+| `openai` | `OPENAI_API_KEY` | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | `TTS_VOICE` | `alloy` |
+
+- `provider` defaults to `deepgram`, but the server engine only activates when
+  `TTS_PROVIDER` is explicitly set **and** a key is present; otherwise
+  `GET /api/tts/config` reports `engine: 'browser'` and the client's built-in
+  `speechSynthesis` speaks. This keeps the default cost-free even on machines
+  that already have `DEEPGRAM_API_KEY` for STT.
+- `POST /api/tts` returns `{ audio, contentType }` (base64). Successful calls
+  are traced as `tts` rows via `traceStore.recordCall` with `provider`, `model`,
+  `durationMs`, `costUsd`, and the spoken `prompt`.
+- The client adapter prefers the server engine when configured and falls back
+  to `speechSynthesis` on any server failure (including browser autoplay
+  rejection), so a broken TTS key never blocks the interview.
+- v2 (planned): record the candidate's answers for later playback.
+
+## 7. Interview end flow
+
+Final report (stage synthesis, overall report, coach plan, candidate merge,
+auto-debrief) is expensive: ~10-20 s of extra model time. To avoid a silent
+hang after the last answer, the app separates announcement from analysis:
+
+- `POST /api/answer` returns `state: 'analyzing'` as soon as the interviewer
+  decides the session is over. The UI shows **"Interview ended — we are
+  analyzing your interview to give you insights. This may take a few minutes."**
+  and keeps the progress view visible.
+- The client polls `GET /api/report/:sessionId` every 2.5 s. The background
+  job builds the final report in `server/lib/interview.js`
+  (`finalizeSession` → `finishMockInterview` / `finishPracticeSession`), merges
+  the session into the candidate, and stores the finished payload on the
+  session object (`session.finalPayload`).
+- The poll returns `{ ok, state: 'analyzing' }` while the job runs and
+  `{ ok, state: 'final_report', report, candidate, debrief }` when ready; the
+  UI then renders the normal report. If a poll arrives with no payload (e.g.
+  the server restarted mid-analysis), the report route re-kicks the job.
+- Direct `processAnswer` callers (tests) keep the synchronous path unless they
+  opt in via `deps.deferFinalReport`; the shipped server always defers
+  (`createServer({ deferFinalReport: true })`).
+
+## 8. Tests
+
+`npm test` runs `node --test "tests/*.test.js"` — zero third-party dependencies.
+The deferred end flow, the `TTS_PROVIDER` opt-in gating, and the browser
+engine default are covered in `tests/server.test.js` and
+`tests/ttsEndpoint.test.js`. Note: `server.js` loads `.env` into the process
+at `require()` time, so tests that assert "provider not configured" call
+`withoutProvider()` to neutralize any locally-set `TTS_PROVIDER`.

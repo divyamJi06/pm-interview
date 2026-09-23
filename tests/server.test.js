@@ -1,4 +1,4 @@
-const test = require('node:test');
+﻿const test = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const fs = require('node:fs');
@@ -73,7 +73,7 @@ function makeMockCallModel() {
           cross_stage_patterns: ['structured but slightly slow to commit'],
           top_things_to_work_on: ['commit faster'],
           recommended_resources: [
-            { title: 'Thinking in Bets — Annie Duke', type: 'book', why: 'practice committing to decisions under uncertainty' },
+            { title: 'Thinking in Bets â€” Annie Duke', type: 'book', why: 'practice committing to decisions under uncertainty' },
           ],
         };
       }
@@ -85,7 +85,7 @@ function makeMockCallModel() {
               why_it_matters: 'The verdict pattern shows hesitation to land on a call.',
               how_to_practice: 'For each practice answer, state a single recommended decision in the closing sentence.',
               try_this_next_time: 'I would commit to the premium segment first because it gives the clearest signal within our test budget.',
-              resource: 'Thinking in Bets — Annie Duke',
+              resource: 'Thinking in Bets â€” Annie Duke',
             },
           ],
           priority_order: ['commit faster'],
@@ -174,7 +174,7 @@ test('full mock interview runs every stage and produces a final report', async (
       seen.push('final_report');
       assert.equal(payload.report.report.overall_verdict, 'strong');
       assert.ok(payload.report.report.cross_stage_patterns.length > 0);
-      assert.equal(payload.report.report.recommended_resources[0].title, 'Thinking in Bets — Annie Duke');
+      assert.equal(payload.report.report.recommended_resources[0].title, 'Thinking in Bets â€” Annie Duke');
       assert.equal(payload.report.action_plan.length, 1);
       assert.equal(payload.report.action_plan[0].gap, 'commit faster');
       assert.deepEqual(payload.report.priority_order, ['commit faster']);
@@ -804,4 +804,51 @@ test('completing all graded rounds auto-runs the candidate debrief', async (t) =
   const expected = new Set(rounds.gradedStages(loadStageOrder()).map((s) => s.name));
   assert.deepEqual(new Set(detail.body.candidate.coveredStages), expected);
   assert.equal(detail.body.candidate.debriefReport.report.cross_stage_patterns.length > 0, true);
+});
+
+
+test('deferred final report shows analyzing then serves the report endpoint', async (t) => {
+  const mock = makeMockCallModel();
+  const server = createServer({ callModel: mock.callModel, config: loadStageOrder(), rng: () => 0, deferFinalReport: true });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+  store.clearSessions();
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const started = await post(base, '/api/start', { mode: 'practice', stage: 'product_design' });
+  assert.equal(started.status, 200);
+  const sessionId = started.body.sessionId;
+
+  let sawAnalyzing = false;
+  let guard = 0;
+  while (true) {
+    const r = await post(base, '/api/answer', { sessionId, answer: 'Let me restructure the problem...' });
+    assert.equal(r.status, 200);
+    if (r.body.state === 'analyzing') {
+      sawAnalyzing = true;
+      break;
+    }
+    assert.ok(r.body.state === 'question' || r.body.state === 'follow_up', `unexpected state ${r.body.state}`);
+    guard += 1;
+    assert.ok(guard < 30, 'practice did not finish');
+  }
+  assert.ok(sawAnalyzing, 'the final answer reports analyzing instead of a synchronous report');
+
+  let final;
+  for (let i = 0; i < 100; i += 1) {
+    const r = await get(base, '/api/report/' + sessionId);
+    assert.equal(r.status, 200);
+    if (r.body.state === 'final_report') {
+      final = r.body;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(final, 'report endpoint eventually returns the final report');
+  assert.equal(final.report.stageVerdicts.length, 1);
+  assert.equal(final.report.stageVerdicts[0].stage, 'product_design');
+  assert.equal(final.report.action_plan.length, 1, 'background analysis attaches the coach action plan');
+  assert.ok(final.candidate, 'background analysis attaches the candidate payload');
+  assert.ok(final.candidate.coveredStages.includes('product_design'), 'final session merged into the candidate');
 });

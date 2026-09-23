@@ -11,6 +11,7 @@ const { loadStage } = require('./lib/loadStage');
 const { loadResourceBank } = require('./lib/resourceBank');
 const { createCallModel, DEFAULT_PROVIDER } = require('./lib/callModel');
 const { createTranscriber } = require('./lib/transcribe');
+const { createSpeaker } = require('./lib/speech');
 const { createTraceStore } = require('./lib/traceStore');
 const { createSessionFileStore } = require('./lib/sessionFileStore');
 const { createCandidateFileStore } = require('./lib/candidateFileStore');
@@ -93,19 +94,27 @@ function createServer({
   config = null,
   callModel,
   transcriber = null,
+  speaker = null,
   rng = Math.random,
   publicDir = PUBLIC_DIR,
   logger = console,
   traceStore = null,
   traceDir = DEFAULT_TRACE_DIR,
+  deferFinalReport = false,
 } = {}) {
   let liveCallModel = callModel;
   let callModelError = null;
   let liveTranscriber = transcriber;
+  let liveSpeaker = speaker;
 
   function getTranscriber() {
     if (!liveTranscriber) liveTranscriber = createTranscriber();
     return liveTranscriber;
+  }
+
+  function getSpeaker() {
+    if (!liveSpeaker) liveSpeaker = createSpeaker();
+    return liveSpeaker;
   }
 
   function getCallModel() {
@@ -133,6 +142,7 @@ function createServer({
       trackTokens: resolved.tokens,
       templateFiller: (template, data) => fillTemplate(template, { ...resolved.tokens, ...data }),
       rng,
+      deferFinalReport,
     };
     if (resolved.stagesDir) {
       base.loadStageFn = (name) => loadStage(name, { dataDir: resolved.stagesDir, mode: (stageCfgFor(name) || {}).mode });
@@ -318,6 +328,9 @@ function createServer({
             payload.candidate = rounds.candidatePayload(candidate, track.config);
           }
         }
+        if (payload.state === 'analyzing') {
+          scheduleFinalReport(session, model);
+        }
         json(res, 200, payload);
       })
       .catch((err) => {
@@ -327,6 +340,42 @@ function createServer({
         logger.error('handleAnswer failed:', err);
         json(res, 502, { ok: false, error: friendlyEngineError(err) });
       });
+  }
+
+  const analysisPending = new Set();
+
+  function scheduleFinalReport(session, model) {
+    if (analysisPending.has(session.id)) return;
+    analysisPending.add(session.id);
+    const runDeps = deps(model, trackFor(session.trackId));
+    Promise.resolve()
+      .then(() => runFinalReport(session, runDeps, model))
+      .catch((err) => logger.error(`Final report analysis failed for session ${session.id}:`, err))
+      .finally(() => analysisPending.delete(session.id));
+  }
+
+  async function runFinalReport(session, runDeps, model) {
+    const payload = await interview.finalizeSession(session, runDeps);
+    const track = trackFor(session.trackId);
+    if (session.mode === 'practice' && session.candidateId) {
+      const candidate = candidateStore.getCandidate(session.candidateId);
+      if (candidate) {
+        rounds.mergeSessionIntoCandidate(candidate, session);
+        candidateStore.saveCandidate(candidate.id);
+        const cov = rounds.coverage(candidate, track.config);
+        if (cov.done) {
+          if (candidate.debriefReport) {
+            payload.debrief = candidate.debriefReport;
+          } else {
+            payload.debrief = await runCandidateDebrief(model, candidate);
+          }
+        }
+        payload.candidate = rounds.candidatePayload(candidate, track.config);
+      }
+    }
+    session.finalPayload = payload;
+    store.saveSession(session.id);
+    logger.info(`Final report ready for session ${session.id}`);
   }
 
   return http.createServer((req, res) => {
@@ -407,6 +456,22 @@ function createServer({
         sessions: store.list().filter((s) => s.awaiting === 'answer').map(activeSessionSummary),
       });
       return;
+    }
+
+    if (req.method === 'GET' && url.pathname.startsWith('/api/report/')) {
+      const id = decodeURIComponent(url.pathname.slice('/api/report/'.length));
+      const session = store.getSession(id);
+      if (!session) {
+        return json(res, 404, { ok: false, error: 'Session not found.' });
+      }
+      if (!session.finalPayload && session.awaiting === 'final_report') {
+        const model = getCallModel();
+        if (model) scheduleFinalReport(session, model);
+      }
+      if (!session.finalPayload) {
+        return json(res, 200, { ok: true, state: 'analyzing' });
+      }
+      return json(res, 200, { ok: true, state: 'final_report', ...session.finalPayload });
     }
 
     const sessionMatch = /^GET \/api\/sessions\/([A-Za-z0-9._-]+)$/.exec(route);
@@ -537,6 +602,69 @@ function createServer({
       return;
     }
 
+    if (route === 'GET /api/tts/config') {
+      try {
+        const s = getSpeaker();
+        const serverEngine = s.enabled && !!process.env.TTS_PROVIDER;
+        json(res, 200, {
+          ok: true,
+          enabled: s.enabled,
+          provider: s.provider,
+          model: s.model,
+          voice: s.voice,
+          engine: serverEngine ? 'server' : 'browser',
+          maxTextChars: s.maxTextChars,
+        });
+      } catch (err) {
+        json(res, 200, { ok: false, enabled: false, engine: 'browser', error: err.message });
+      }
+      return;
+    }
+
+    if (route === 'POST /api/tts') {
+      readJsonBody(req)
+        .then((body) => {
+          let s;
+          try {
+            s = getSpeaker();
+          } catch (err) {
+            return json(res, 503, { ok: false, error: err.message });
+          }
+          if (!s.enabled || !process.env.TTS_PROVIDER) {
+            return json(res, 503, {
+              ok: false,
+              error: `Server-side voice is off. Set TTS_PROVIDER and ${s.envKey} in .env to enable it; until then the browser speaks.`,
+            });
+          }
+          const text = typeof body.text === 'string' ? body.text.trim() : '';
+          const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+          const recordTrace = (record) => {
+            if (traceStore && sessionId) {
+              traceStore.recordCall({ sessionId, record: { label: 'tts', provider: s.provider, model: s.model, ...record } });
+            }
+          };
+          const startedAt = Date.now();
+          return s
+            .speak({ text })
+            .then(({ audio, contentType, costUsd }) => {
+              recordTrace({
+                success: true,
+                costUsd,
+                prompt: text,
+                durationMs: Date.now() - startedAt,
+              });
+              json(res, 200, { ok: true, audio: audio.toString('base64'), contentType });
+            })
+            .catch((err) => {
+              recordTrace({ success: false, error: String(err.message).slice(0, 300), prompt: text });
+              logger.warn(`TTS (${s.provider}) failed: ${err.message}`);
+              json(res, err.statusCode || 502, { ok: false, error: err.message });
+            });
+        })
+        .catch((err) => json(res, 400, { ok: false, error: err.message }));
+      return;
+    }
+
     json(res, 404, { ok: false, error: 'Not found' });
   });
 }
@@ -571,7 +699,7 @@ if (require.main === module) {
   } catch (err) {
     console.warn(`Candidate persistence disabled: ${err.message}. Candidates live in memory only.`);
   }
-  const server = createServer({ traceStore });
+  const server = createServer({ traceStore, deferFinalReport: true });
   server.listen(port, host, () => {
     console.log(`PM interview prep running at http://${host}:${port}`);
     console.log(`AI provider: ${process.env.AI_PROVIDER || DEFAULT_PROVIDER} (set AI_PROVIDER to switch)`);

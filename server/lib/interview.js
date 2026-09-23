@@ -32,11 +32,12 @@ function makeDeps({
   resourceBankReader = loadResourceBank,
   resourceBankFormatter = formatResourceBank,
   trackTokens = DEFAULT_TOKENS,
+  deferFinalReport = false,
 }) {
   const tf = templateFiller === fillTemplate
     ? (template, data) => fillTemplate(template, { ...trackTokens, ...data })
     : templateFiller;
-  return { callModel, config, loadStage: loadStageFn, promptReader, templateFiller: tf, rng, traceStore, resourceBankReader, resourceBankFormatter, trackTokens };
+  return { callModel, config, loadStage: loadStageFn, promptReader, templateFiller: tf, rng, traceStore, resourceBankReader, resourceBankFormatter, trackTokens, deferFinalReport };
 }
 
 function callTraced({ deps, session, label, prompt, opts = {} }) {
@@ -602,6 +603,14 @@ async function processAnswer({ session, answerText, deps }) {
   }
 
   if (decision.decision === 'end_interview') {
+    if (deps.deferFinalReport) {
+      session.awaiting = 'final_report';
+      session.endedAt = Date.now();
+      return buildBase(session, deps.loadStage(session.currentStageName), deps, {
+        state: 'analyzing',
+        message: 'interview_over',
+      });
+    }
     return session.mode === 'mock'
       ? finishMockInterview({ session, deps })
       : finishPracticeSession({ session, deps });
@@ -704,4 +713,8 @@ module.exports = {
   isLastStage,
   formatProfile,
   formatTriples,
+  finalizeSession: (session, deps) =>
+    session.mode === 'mock'
+      ? finishMockInterview({ session, deps })
+      : finishPracticeSession({ session, deps }),
 };

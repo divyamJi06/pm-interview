@@ -517,6 +517,19 @@
     padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px;
     max-width: 420px;
   }
+  .inputbar #voiceBtn {
+    width: 44px; flex: 0 0 44px; height: 44px; padding: 0;
+    border: 1px solid var(--border); background: transparent; color: var(--text);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .inputbar #voiceBtn:hover { background: var(--panel-2); color: var(--text); }
+  .inputbar #voiceBtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .inputbar #voiceBtn .icn-off { display: none; }
+  .inputbar #voiceBtn[aria-pressed="false"] .icn-on { display: none; }
+  .inputbar #voiceBtn[aria-pressed="false"] .icn-off { display: block; opacity: .5; }
+  .inputbar.voice-on .mic { flex: 1 1 auto; width: auto; height: 52px; min-width: 0; }
+  .inputbar.voice-on textarea, .inputbar.voice-on #sendBtn { display: none; }
+  .inputbar.voice-on .micHint { bottom: 76px; }
 
   /* Report */
   .report { line-height: 1.7; }
@@ -972,6 +985,13 @@
         <div class="muted" style="font-size:12px;margin-top:6px">This round continues the candidate's profile — the interviewer sees notes from earlier rounds. Target role and resume come from the candidate.</div>
         <div id="candDebriefBox" class="hidden" style="margin-top:8px"></div>
       </div>
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <label>Voice mode</label>
+        <div class="seg" id="voiceSeg">
+          <button data-v="on" class="on"><span class="t">Voice</span><span class="d">The interviewer speaks questions aloud; you answer with the microphone. On by default.</span></button>
+          <button data-v="off"><span class="t">Text</span><span class="d">Type your answers. Interviewer text is shown on screen only.</span></button>
+        </div>
+      </div>
       <button class="prime" id="startBtn">Start interview</button>
       <div id="resumeBox" class="hidden" style="margin-top:18px;border-top:1px solid var(--border);padding-top:16px">
         <div class="row">
@@ -998,7 +1018,11 @@
         </div>
       </div>
       <div id="log"></div>
-      <div class="inputbar">
+      <div class="inputbar" id="inputbar">
+        <button id="voiceBtn" class="mic-style" type="button" title="Voice mode is on — click to switch to text" aria-pressed="true">
+          <svg class="icn-on" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+          <svg class="icn-off" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="m16 9 6 6"/><path d="m22 9-6 6"/></svg>
+        </button>
         <button id="micBtn" class="mic" type="button" title="Speak your answer instead of typing it" aria-label="Record your answer" aria-pressed="false" disabled>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
         </button>
@@ -1056,10 +1080,72 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const state = { sessionId: null, mode: 'mock', busy: false, awaiting: 'setup', candidateId: null, feedback: 'full', candidates: [], tracks: [], sttEnabled: false, sttProvider: '', recording: false };
+  const state = { sessionId: null, mode: 'mock', busy: false, awaiting: 'setup', candidateId: null, feedback: 'full', candidates: [], tracks: [], sttEnabled: null, sttProvider: '', recording: false, voiceMode: (() => { try { return localStorage.getItem('voice-mode') !== 'off'; } catch (_) { return true; } })(), ttsEngine: 'browser', ttsProvider: '' };
   const currentTrack = () => $('trackSel') ? $('trackSel').value || 'pm' : 'pm';
   const recorder = { media: null, stream: null, chunks: [] };
   const MIC_HTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>';
+  const ttsAudio = { el: null, src: null };
+
+  function ttsStop() {
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
+    if (ttsAudio.el) {
+      try { ttsAudio.el.pause(); } catch (_) {}
+      try { ttsAudio.el.src = ''; } catch (_) {}
+      ttsAudio.el = null;
+    }
+    if (ttsAudio.src) {
+      try { URL.revokeObjectURL(ttsAudio.src); } catch (_) {}
+      ttsAudio.src = null;
+    }
+  }
+
+  function speakBrowser(text) {
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window)) return resolve();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.02;
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    });
+  }
+
+  function base64ToBlob(b64, type) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: type || 'audio/mpeg' });
+  }
+
+  async function speakServer(text) {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: state.sessionId, text }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.ok === false) throw new Error(data.error || 'Speech failed');
+    const url = URL.createObjectURL(base64ToBlob(data.audio, data.contentType));
+    ttsAudio.src = url;
+    await new Promise((resolve) => {
+      const a = (ttsAudio.el = new Audio(url));
+      a.onended = () => resolve();
+      a.onerror = () => resolve();
+      a.play().catch(() => resolve());
+    });
+  }
+
+  async function speak(text) {
+    if (!state.voiceMode || !text) return;
+    ttsStop();
+    try {
+      if (state.ttsEngine === 'server') await speakServer(text);
+      else await speakBrowser(text);
+    } catch (_) {
+      await speakBrowser(text);
+    }
+  }
 
   const VERDICT_CLASS = { strong: 'v-strong', developing: 'v-developing', weak: 'v-weak' };
 
@@ -1144,6 +1230,27 @@
 
   function clearError() { $('errorBox').classList.add('hidden'); }
 
+  function setVoiceMode(on) {
+    state.voiceMode = !!on;
+    try { localStorage.setItem('voice-mode', state.voiceMode ? 'on' : 'off'); } catch (_) {}
+    const bar = $('inputbar');
+    if (bar) bar.classList.toggle('voice-on', state.voiceMode);
+    const vb = $('voiceBtn');
+    if (vb) {
+      vb.setAttribute('aria-pressed', String(state.voiceMode));
+      vb.title = state.voiceMode ? 'Voice mode is on — click to switch to text' : 'Voice mode is off — click to switch to voice';
+    }
+    const seg = $('voiceSeg');
+    if (seg) {
+      for (const b of seg.querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === (state.voiceMode ? 'on' : 'off'));
+    }
+    if (!state.voiceMode) {
+      ttsStop();
+    } else if (state.sttEnabled === false) {
+      micHint('Voice mode is on but voice input is not configured — set STT_PROVIDER and its API key in .env, or switch to Text mode.', true);
+    }
+  }
+
   function renderProgress(payload) {
     const st = payload.stage;
     const p = payload.stageProgress || {};
@@ -1171,6 +1278,7 @@
     const q = payload.question;
     const isFu = payload.state === 'follow_up' || (q && q.isFollowUp);
     addMsg(isFu ? 'ai fu' : 'ai', '#' + q.text, isFu ? 'follow-up' : 'stage · ' + payload.stage.name);
+    speak(q.text);
   }
 
   function presentReply(payload) {
@@ -1187,6 +1295,7 @@
       state.awaiting = 'answer';
       renderProgress(payload);
       addMsg('ai fu', esc(payload.clarifyAnswer), 'interviewer · clarification');
+      speak(payload.clarifyAnswer);
       addBanner(
         payload.wrapUp
           ? 'The interviewer would like your answer now — go ahead and answer <b>' + esc(payload.question.text) + '</b>'
@@ -1200,15 +1309,43 @@
       }
       addBanner(html);
       setTimeout(() => askQuestion(payload), 350);
-    } else if (payload.state === 'final_report') {
+    } else if (payload.state === 'analyzing') {
       state.awaiting = 'final_report';
-      $('session').classList.add('hidden');
-      const r = payload.report;
-      if (r && r.report) { renderMockReport(r.report, r.stageVerdicts, r.action_plan, r.priority_order); }
-      else { renderRoundReport(r, payload.candidate, payload.debrief); }
-      $('doneMsg').classList.remove('hidden');
-      $('report').classList.remove('hidden');
+      renderProgress(payload);
+      addBanner('Interview ended — we are analyzing your interview to give you insights. This may take a few minutes.');
+      pollAnalysis();
+    } else if (payload.state === 'final_report') {
+      presentFinalReport(payload);
     }
+  }
+
+  function presentFinalReport(payload) {
+    state.awaiting = 'final_report';
+    $('session').classList.add('hidden');
+    const r = payload.report;
+    if (r && r.report) { renderMockReport(r.report, r.stageVerdicts, r.action_plan, r.priority_order); }
+    else { renderRoundReport(r, payload.candidate, payload.debrief); }
+    $('doneMsg').classList.remove('hidden');
+    $('report').classList.remove('hidden');
+  }
+
+  async function pollAnalysis() {
+    const tick = async () => {
+      try {
+        const res = await fetch('/api/report/' + encodeURIComponent(state.sessionId));
+        const payload = await res.json();
+        if (!res.ok || payload.ok === false) throw new Error(payload.error || 'Analysis failed');
+        if (payload.state === 'final_report') {
+          presentFinalReport(payload);
+          return;
+        }
+      } catch (err) {
+        showError(err.message);
+        return;
+      }
+      setTimeout(tick, 2500);
+    };
+    tick();
   }
 
   function verdictPill(v) {
@@ -1384,7 +1521,7 @@
       for (const e of payload.transcript) renderTranscriptEntry(e);
     }
     askQuestion(payload);
-    $('answer').focus();
+    if (!state.voiceMode) $('answer').focus();
   }
 
   async function start() {
@@ -1540,11 +1677,16 @@
       const data = await res.json();
       if (!res.ok || data.ok === false) throw new Error(data.error || 'Transcription failed');
       if (data.transcript) {
-        const ta = $('answer');
-        const cur = ta.value.replace(/\s+$/g, '').trimEnd();
-        ta.value = cur ? cur + '\n' + data.transcript : data.transcript;
-        ta.focus();
-        ta.scrollTop = ta.scrollHeight;
+        if (state.voiceMode) {
+          btn.title = 'Sending answer…';
+          await submitAnswer(data.transcript);
+        } else {
+          const ta = $('answer');
+          const cur = ta.value.replace(/\s+$/g, '').trimEnd();
+          ta.value = cur ? cur + '\n' + data.transcript : data.transcript;
+          ta.focus();
+          ta.scrollTop = ta.scrollHeight;
+        }
       } else {
         micHint('I could not hear anything — try again.', true);
       }
@@ -1616,8 +1758,13 @@
     const text = ta.value.replace(/\s+$/g, '\n').trim();
     if (!text || state.busy || !state.sessionId) return;
     ta.value = '';
-    setBusy(true);
+    await submitAnswer(text);
+  }
+
+  async function submitAnswer(text) {
+    if (!text || state.busy || !state.sessionId) return;
     addMsg('me', text);
+    setBusy(true);
     try {
       const res = await fetch('/api/answer', {
         method: 'POST',
@@ -1631,7 +1778,7 @@
       showError(err.message);
     } finally {
       setBusy(false);
-      if (state.awaiting === 'answer') $('answer').focus();
+      if (state.awaiting === 'answer' && !state.voiceMode) $('answer').focus();
     }
   }
 
@@ -2076,6 +2223,20 @@ const chip = (k, val) => `<span class="chip">${esc(k)}: <b>${esc(String(val))}</
     $('startBtn').addEventListener('click', start);
     $('sendBtn').addEventListener('click', send);
     $('micBtn').addEventListener('click', toggleMic);
+    $('voiceBtn').addEventListener('click', () => setVoiceMode(!state.voiceMode));
+    for (const btn of $('voiceSeg').querySelectorAll('button')) {
+      btn.addEventListener('click', () => setVoiceMode(btn.dataset.v === 'on'));
+    }
+    fetch('/api/tts/config')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.ok) {
+          state.ttsProvider = d.provider || '';
+          state.ttsEngine = d.engine === 'server' ? 'server' : 'browser';
+        }
+      })
+      .catch(() => {})
+      .finally(() => setVoiceMode(state.voiceMode));
     fetch('/api/transcribe/config')
       .then((r) => r.json())
       .then((d) => {
@@ -2086,7 +2247,8 @@ const chip = (k, val) => `<span class="chip">${esc(k)}: <b>${esc(String(val))}</
           $('micBtn').title = 'Voice input is off — set STT_PROVIDER and its API key in .env to enable it';
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setVoiceMode(state.voiceMode));
     const ta = $('answer');
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
