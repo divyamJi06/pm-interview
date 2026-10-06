@@ -46,11 +46,10 @@ function callTraced({ deps, session, label, prompt, opts = {} }) {
   return deps.callModel(prompt, { ...opts, label, onCall });
 }
 
+// One round, one stage. The multi-stage "full mock" walk is gone: a round runs a
+// single gradeable stage to completion, then produces the final report.
 function stagesFor(session, config) {
-  if (session.mode === 'practice') {
-    return [config.stages.find((s) => s.name === session.practiceStage) || config.stages[0]];
-  }
-  return config.stages;
+  return [config.stages.find((s) => s.name === session.practiceStage) || config.stages[0]];
 }
 
 function isLastStage(session, deps) {
@@ -104,10 +103,7 @@ function stageProgress(session, stage, deps) {
 }
 
 function pacingFor(session, config) {
-  const budget =
-    session.mode === 'practice'
-      ? config.roundBudgetMinutes || 40
-      : config.timeBudgetMinutes || 60;
+  const budget = config.roundBudgetMinutes || 40;
   const activeMs = Math.max(0, (Date.now() - session.createdAt) - (session.idleMs || 0));
   const elapsed = activeMs / 60000;
   const ratio = elapsed / budget;
@@ -257,6 +253,11 @@ function buildBase(session, stage, deps, extra = {}) {
     mode: session.mode,
     stage: { name: stage.name, index: session.stageIndex, total: stagesFor(session, deps.config).length },
     stageProgress: stageProgress(session, stage, deps),
+    // On every payload, not just on resume and the final report. The browser
+    // writes each turn to the database as it arrives, so the transcript is
+    // durable while the round is still running — if the server or the tab dies
+    // mid-interview, the history still shows what was asked and answered.
+    transcript: transcriptFromSession(session),
     ...extra,
   };
 }
@@ -267,12 +268,17 @@ function resume(session, deps) {
   return buildBase(session, stage, deps, {
     state: session.awaiting === 'final_report' ? 'final_report' : 'question',
     question: session.currentQuestion,
-    transcript: transcriptFromSession(session),
+    // Rejoining never surfaces the judge: the client decides when to reveal the
+    // stored judge rows, based on whether the round has ended.
+    feedback: null,
   });
 }
 
+// The transcript is the durable record of the round, so it always carries the
+// per-answer judge. Feedback is withheld during the interview on purpose, but
+// withholding it here would destroy the history: a mock run would keep only its
+// questions and answers. The client hides `judge` rows until the round ends.
 function transcriptFromSession(session) {
-  const hidePerAnswerJudge = session.mode === 'mock' || session.feedbackMode === 'simulation';
   const transcript = [];
   for (const [stage, triples] of session.triples) {
     for (const t of triples) {
@@ -287,7 +293,7 @@ function transcriptFromSession(session) {
         });
       }
       transcript.push({ type: 'answer', stage, text: t.answer });
-      if (t.judge && !hidePerAnswerJudge) {
+      if (t.judge) {
         transcript.push({
           type: 'judge',
           stage,
@@ -297,6 +303,9 @@ function transcriptFromSession(session) {
           checklist_hits: t.judge.checklist_hits || null,
           green_flags_hit: t.judge.green_flags_hit || [],
           red_flags_hit: t.judge.red_flags_hit || [],
+          // Marks this row as "earned at the end", so the live round can render
+          // the question and answer without leaking the verdict early.
+          withheldUntilEnd: true,
         });
       }
     }
@@ -310,9 +319,8 @@ function transcriptFromSession(session) {
 // Judges score each answer from 1 to 5 per dimension, and nothing else in the
 // pipeline produces a number, so any chart of "how am I doing" has to be built
 // from these. They are aggregated here rather than in the browser because the
-// per-answer judges are deliberately hidden from the transcript in mock and
-// simulation mode — a hidden judge must not become an unscored round on the
-// candidate's dashboard.
+// per-answer judge is withheld from the live round — a withheld judge must not
+// become an unscored round on the candidate's dashboard.
 //
 // Output is on a 0-100 scale so the client can chart it without knowing the
 // rubric uses 1-5.
@@ -393,10 +401,10 @@ function begin(session, deps) {
   });
 }
 
+// Per-answer feedback is never sent during the round. It is judged, stored in
+// the transcript, and revealed with the final report once the round ends.
 async function provideFeedback(session, deps, latestJudge) {
-  if (session.mode !== 'practice') return null;
-  if (session.feedbackMode === 'simulation') return null;
-  return latestJudge;
+  return null;
 }
 
 function transcriptEntriesFromSession(session) {
@@ -415,8 +423,11 @@ async function runCoachTraced({ session, deps, debriefOutput, candidateProfile, 
   });
 }
 
-async function finishMockInterview({ session, deps }) {
+async function finishRound({ session, deps }) {
   await synthesizeCurrentStageIfNeeded({ session, deps });
+  const lastJudge = (session.triples.get(session.currentStageName) || [])
+    .filter((t) => t.judge)
+    .at(-1)?.judge || null;
   const report = await runInterviewSynthesizer({ session, deps });
   let coachResult = { action_plan: [], priority_order: [] };
   try {
@@ -438,9 +449,10 @@ async function finishMockInterview({ session, deps }) {
   const stage = deps.loadStage(session.currentStageName);
   return buildBase(session, stage, deps, {
     state: 'final_report',
+    // The round is over, so the judge held back during it is released here.
+    feedback: lastJudge,
     scores: aggregateScores(session),
     counts: sessionCounts(session),
-    transcript: transcriptFromSession(session),
     report: {
       report,
       stageVerdicts: session.stageVerdicts,
@@ -450,71 +462,11 @@ async function finishMockInterview({ session, deps }) {
   });
 }
 
-async function finishPracticeSession({ session, deps }) {
-  await synthesizeCurrentStageIfNeeded({ session, deps });
-  const stage = deps.loadStage(session.currentStageName);
-  const lastJudge = (session.triples.get(stage.name) || [])
-    .filter((t) => t.judge)
-    .at(-1)?.judge || null;
-  let roundCoach = { action_plan: [], priority_order: [] };
-  const verdict = (session.stageVerdicts || []).at(-1)?.verdict;
-  if (verdict) {
-    try {
-      roundCoach = await runCoachTraced({
-        session,
-        deps,
-        debriefOutput: verdict,
-        candidateProfile: session.profile,
-        transcriptExcerpts: transcriptEntriesFromSession(session),
-      });
-    } catch (err) {
-      console.warn(`Coach failed for round ${session.id}: ${err.message}`);
-    }
-  }
-  session.coachReport = roundCoach;
-  session.awaiting = 'final_report';
-  session.endedAt = Date.now();
-  if (deps.traceStore) deps.traceStore.finalizeSession({ sessionId: session.id, outcome: 'finished' });
-  return buildBase(session, stage, deps, {
-    state: 'final_report',
-    feedback: session.feedbackMode === 'simulation' ? null : lastJudge,
-    scores: aggregateScores(session),
-    counts: sessionCounts(session),
-    transcript: transcriptFromSession(session),
-    report: {
-      mode: 'practice',
-      stageVerdicts: session.stageVerdicts,
-      action_plan: roundCoach.action_plan,
-      priority_order: roundCoach.priority_order,
-    },
-  });
-}
-
+// A round is a single stage, so there is never a next one to move into: the
+// only way out of a stage is to finish the round.
 async function moveToNextStage({ session, deps }) {
-  const prevName = session.currentStageName;
   await synthesizeCurrentStageIfNeeded({ session, deps });
-  const prevVerdict = session.stageVerdicts.find((v) => v.stage === prevName)?.verdict || null;
-
-  if (isLastStage(session, deps)) {
-    return session.mode === 'mock'
-      ? finishMockInterview({ session, deps })
-      : finishPracticeSession({ session, deps });
-  }
-
-  session.stageIndex += 1;
-  const stages = stagesFor(session, deps.config);
-  const next = deps.loadStage(stages[session.stageIndex].name);
-  session.triples.set(next.name, []);
-  const picked = pickUnaskedQuestion(next, session, deps);
-  loadQuestionAt(session, next, picked.i, deps);
-  session.awaiting = 'answer';
-
-  const reveal = session.mode === 'practice' || deps.config.feedbackTiming === 'stage_boundary';
-  return buildBase(session, next, deps, {
-    state: 'transition',
-    transition: { from: prevName, to: next.name, stageVerdict: reveal ? prevVerdict : null },
-    question: session.currentQuestion,
-  });
+  return finishRound({ session, deps });
 }
 
 async function runSimpleDirector({ session, deps }) {
@@ -656,15 +608,13 @@ async function processAnswer({ session, answerText, deps }) {
 
   if (decision.decision === 'next_question') {
     return handleNextQuestion({ session, stage, deps }).then((res) =>
-      session.mode === 'practice' && res.state === 'question'
+      res.state === 'question'
         ? buildBase(session, deps.loadStage(session.currentStageName), deps, {
             ...res,
             question: session.currentQuestion,
-            feedback,
+            feedback: null,
           })
-        : res.state === 'question'
-          ? buildBase(session, stage, deps, { ...res, question: session.currentQuestion, feedback: null })
-          : res
+        : res
     );
   }
 
@@ -686,9 +636,7 @@ async function processAnswer({ session, answerText, deps }) {
         message: 'interview_over',
       });
     }
-    return session.mode === 'mock'
-      ? finishMockInterview({ session, deps })
-      : finishPracticeSession({ session, deps });
+    return finishRound({ session, deps });
   }
 
   return moveToNextStage({ session, deps });
@@ -788,8 +736,7 @@ module.exports = {
   isLastStage,
   formatProfile,
   formatTriples,
-  finalizeSession: (session, deps) =>
-    session.mode === 'mock'
-      ? finishMockInterview({ session, deps })
-      : finishPracticeSession({ session, deps }),
+  // The Stop button ends the round outright, skipping the director's own
+  // end-of-round decision but producing the same final report.
+  finalizeSession: (session, deps) => finishRound({ session, deps }),
 };

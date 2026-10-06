@@ -57,7 +57,6 @@ function InterviewRow({ row }) {
         </div>
         <p className="mono mt-1 text-[15px] text-mute">
           {relDate(row.started_at)} · {row.answer_count || 0} answer{(row.answer_count || 0) === 1 ? '' : 's'}
-          {row.feedback_mode === 'simulation' ? ' · simulation mode' : ''}
         </p>
       </div>
       <div className="flex items-center gap-4">

@@ -137,62 +137,44 @@ test('health and stages endpoints', async (t) => {
   assert.equal(stages.body.feedbackTiming, 'stage_boundary');
 });
 
-test('full mock interview runs every stage and produces a final report', async (t) => {
+test('a round must name a stage, and the greeting is not a round', async (t) => {
   const mock = makeMockCallModel();
   const { server, base } = await boot(mock);
   t.after(() => server.close());
   store.clearSessions();
 
-  const started = await post(base, '/api/start', { mode: 'mock', targetRole: 'Senior PM' });
+  const noStage = await post(base, '/api/start', { targetRole: 'Senior PM' });
+  assert.equal(noStage.status, 400);
+  assert.match(noStage.body.error, /Unknown stage/);
+
+  const started = await post(base, '/api/start', { stage: 'estimation', targetRole: 'Senior PM' });
   assert.equal(started.status, 200);
+  assert.equal(started.body.mode, 'mock', 'every round is a mock round');
   assert.equal(started.body.state, 'question');
-  assert.equal(started.body.stage.name, 'greeting');
+  assert.equal(started.body.stage.name, 'estimation');
+  assert.equal(started.body.stage.total, 1, 'a round is exactly one stage');
   assert.ok(started.body.question.text.length > 0);
 
-  const seen = [];
+  // The mock round finishes on the single stage it started on.
   let sessionId = started.body.sessionId;
   let guard = 0;
-
-  while (true) {
+  let final = null;
+  while (guard < 40) {
     const res = await post(base, '/api/answer', { sessionId, answer: 'My detailed answer.' });
     assert.equal(res.status, 200);
-    assert.equal(res.body.ok, true, JSON.stringify(res.body));
-    const payload = res.body;
-
-    if (payload.state === 'question') {
-      seen.push('question:' + payload.stage.name);
-      assert.equal(payload.feedback, null, 'mock mode never shows per-answer feedback');
-    } else if (payload.state === 'follow_up') {
-      seen.push('follow_up:' + payload.stage.name);
-      assert.equal(payload.question.isFollowUp, true);
-    } else if (payload.state === 'transition') {
-      seen.push('transition:' + payload.transition.from + '->' + payload.transition.to);
-      if (payload.transition.from !== 'greeting') {
-        assert.ok(payload.transition.stageVerdict, 'stage-boundary feedback reveals the verdict for graded stages');
-      }
-      assert.ok(payload.question);
-    } else if (payload.state === 'final_report') {
-      seen.push('final_report');
-      assert.equal(payload.report.report.overall_verdict, 'strong');
-      assert.ok(payload.report.report.cross_stage_patterns.length > 0);
-      assert.equal(payload.report.report.recommended_resources[0].title, 'Thinking in Bets â€” Annie Duke');
-      assert.equal(payload.report.action_plan.length, 1);
-      assert.equal(payload.report.action_plan[0].gap, 'commit faster');
-      assert.deepEqual(payload.report.priority_order, ['commit faster']);
-      const stages = payload.report.stageVerdicts.map((v) => v.stage);
-      assert.deepEqual(stages, ['behavioral', 'estimation', 'product_design', 'case_study', 'strategy', 'execution_metrics', 'technical']);
+    if (res.body.state === 'final_report') {
+      final = res.body;
       break;
-    } else {
-      assert.fail('unknown state ' + payload.state);
     }
-
+    assert.equal(res.body.feedback, null, 'feedback stays withheld while the round runs');
     guard += 1;
-    assert.ok(guard < 100, 'interview did not terminate');
   }
-
-  assert.ok(seen.includes('transition:greeting->behavioral'));
-  assert.ok(seen.includes('transition:behavioral->estimation'));
-  assert.ok(seen.includes('final_report'));
+  assert.ok(final, 'the round terminated with a report');
+  assert.equal(final.report.stageVerdicts.length, 1);
+  assert.equal(final.report.stageVerdicts[0].stage, 'estimation');
+  assert.ok(final.feedback, 'the held-back per-answer judge is released at the end');
+  assert.equal(final.report.report.overall_verdict, 'strong');
+  assert.equal(final.report.action_plan.length, 1);
 
   const synthPrompt = mock.prompts.find((p) => p.includes('writing the final overall assessment'));
   assert.ok(synthPrompt.includes('RESOURCE BANK:'), 'final report prompt includes the resource bank header');
@@ -200,13 +182,13 @@ test('full mock interview runs every stage and produces a final report', async (
   assert.ok(synthPrompt.includes('Rambling / answers running too long:'), 'resources are dimension-labeled');
 });
 
-test('practice mode shows feedback after every answer and one stage verdict', async (t) => {
+test('a round withholds judge feedback until it ends, then reveals it with the report', async (t) => {
   const mock = makeMockCallModel();
   const { server, base } = await boot(mock);
   t.after(() => server.close());
   store.clearSessions();
 
-  const started = await post(base, '/api/start', { mode: 'practice', stage: 'product_design' });
+  const started = await post(base, '/api/start', { stage: 'product_design' });
   assert.equal(started.status, 200);
   assert.equal(started.body.stage.name, 'product_design');
 
@@ -216,27 +198,28 @@ test('practice mode shows feedback after every answer and one stage verdict', as
   while (true) {
     const r = await post(base, '/api/answer', { sessionId, answer: 'Let me restructure the problem...' });
     assert.equal(r.status, 200);
-    assert.ok(r.body.feedback, 'practice mode returns judge feedback');
-    assert.equal(r.body.feedback.overall_verdict, 'strong');
     if (r.body.state === 'final_report') {
       final = r.body;
       break;
     }
+    assert.equal(r.body.feedback, null, 'no judge is shown while the round is running');
     assert.ok(r.body.state === 'question' || r.body.state === 'follow_up', 'stage keeps progressing');
     guard += 1;
-    assert.ok(guard < 30, 'practice did not finish');
+    assert.ok(guard < 30, 'round did not finish');
   }
 
+  assert.ok(final.feedback, 'the per-answer judge is released when the round ends');
+  assert.equal(final.feedback.overall_verdict, 'strong');
   assert.equal(final.report.stageVerdicts.length, 1);
   assert.equal(final.report.stageVerdicts[0].stage, 'product_design');
   assert.equal(final.report.action_plan.length, 1, 'a round-level coach plan is attached to the round report');
   assert.deepEqual(final.report.priority_order, ['commit faster']);
   const roundCoachPrompt = mock.prompts.filter((p) => p.includes('You are coaching a PM interview candidate')).at(-1);
-  assert.ok(roundCoachPrompt.includes('"stage_verdict": "strong"'), 'the coach prompt embeds this round\'s stage verdict');
+  assert.ok(roundCoachPrompt.includes('"overall_verdict": "strong"'), 'the coach prompt embeds this round\'s final verdict');
   assert.ok(roundCoachPrompt.includes('--- STAGE: product_design ---'), 'the coach prompt embeds this round\'s Q/A excerpts');
 });
 
-test('estimation practice uses the checklist judge and finishes its questions', async (t) => {
+test('estimation rounds withhold the judge during the round but store it in the transcript', async (t) => {
   const mock = makeMockCallModel();
   const { server, base } = await boot(mock);
   t.after(() => server.close());
@@ -255,9 +238,14 @@ test('estimation practice uses the checklist judge and finishes its questions', 
       break;
     }
     assert.equal(r.body.state, 'follow_up', 'the Director decides follow-ups per question');
-    assert.ok(r.body.feedback && r.body.feedback.checklist_hits, 'estimation uses the checklist judge');
+    assert.equal(r.body.feedback, null, 'the judge stays withheld during the round');
+    // The analysis still exists on every payload: it is stored, just not shown.
+    assert.ok(
+      r.body.transcript.some((e) => e.type === 'judge' && e.withheldUntilEnd),
+      'the judge row rides along so it can be stored in the history'
+    );
     guard += 1;
-    assert.ok(guard < 30, 'estimation practice did not finish');
+    assert.ok(guard < 30, 'estimation round did not finish');
   }
 
   assert.ok(final.feedback && final.feedback.checklist_hits, 'final answer feedback shows the checklist judge');
@@ -393,7 +381,8 @@ test('error handling: unknown session and empty answer', async (t) => {
   const missing = await post(base, '/api/answer', { sessionId: 'does-not-exist', answer: 'hi' });
   assert.equal(missing.status, 404);
 
-  const started = await post(base, '/api/start', { mode: 'mock' });
+  const started = await post(base, '/api/start', { stage: 'behavioral' });
+  assert.equal(started.status, 200);
   const sessionId = started.body.sessionId;
   const empty = await post(base, '/api/answer', { sessionId, answer: '   ' });
   assert.equal(empty.status, 400);
@@ -579,13 +568,13 @@ test('finished sessions are not listed as resumable', async (t) => {
   assert.equal(resumed.status, 404);
 });
 
-test('mock resume transcript hides per-answer judge output', async (t) => {
+test('resume transcript carries the judge, flagged to stay withheld until the round ends', async (t) => {
   const mock = makeMockCallModel();
   const { server, base } = await boot(mock);
   t.after(() => server.close());
   store.clearSessions();
 
-  const started = await post(base, '/api/start', { mode: 'mock' });
+  const started = await post(base, '/api/start', { stage: 'behavioral' });
   let sessionId = started.body.sessionId;
   await post(base, '/api/answer', { sessionId, answer: 'Small talk.' });
   await post(base, '/api/answer', { sessionId, answer: 'More small talk.' });
@@ -595,25 +584,28 @@ test('mock resume transcript hides per-answer judge output', async (t) => {
   assert.equal(resumed.status, 200);
   const types = resumed.body.transcript.map((e) => e.type);
   assert.ok(types.includes('answer'), 'answers replay on resume');
-  assert.ok(!types.includes('judge'), 'mock resume must not leak per-answer judge output');
+  const judges = resumed.body.transcript.filter((e) => e.type === 'judge');
+  assert.ok(judges.length > 0, 'the analysis rides along so the history can store it');
+  assert.ok(judges.every((j) => j.withheldUntilEnd), 'every stored judge is marked withheld, so the live view can hide it');
+  assert.equal(resumed.body.feedback, null, 'the payload itself still does not surface the judge');
 });
 
-test('simulation practice resume transcript hides per-answer judge output', async (t) => {
+test('the live payload carries no judge rows outside the stored transcript', async (t) => {
   const mock = makeMockCallModel();
   const { server, base } = await boot(mock);
   t.after(() => server.close());
   store.clearSessions();
   candidateStore.clearCandidates();
 
-  const started = await post(base, '/api/start', { mode: 'practice', stage: 'behavioral', feedback: 'simulation' });
+  const started = await post(base, '/api/start', { stage: 'behavioral' });
   const sessionId = started.body.sessionId;
-  await post(base, '/api/answer', { sessionId, answer: 'I led a project without formal authority.' });
-
-  const resumed = await get(base, '/api/sessions/' + sessionId);
-  assert.equal(resumed.status, 200);
-  const types = resumed.body.transcript.map((e) => e.type);
-  assert.ok(!types.includes('judge'), 'simulation resume must not leak per-answer judge output');
-  assert.ok(!types.includes('stage_verdict'), 'no verdict leaks before the round ends');
+  const answered = await post(base, '/api/answer', { sessionId, answer: 'I led a project without formal authority.' });
+  assert.equal(answered.status, 200);
+  assert.equal(answered.body.feedback, null, 'no verdict is handed to the live round');
+  assert.ok(
+    answered.body.transcript.some((e) => e.type === 'judge' && e.withheldUntilEnd),
+    'the transcript still stores it for history'
+  );
 });
 
 test('rate-limit engine failures produce a friendly message', async (t) => {
@@ -687,18 +679,14 @@ test('practice rounds accumulate a candidate profile and coverage across session
   assert.ok(judgeWithProfile, 'round 2 judge sees the profile note written in round 1');
 });
 
-test('simulation rounds withhold per-answer feedback but still reveal the round verdict', async (t) => {
+test('per-answer feedback stays withheld for the whole round and is released with the report', async (t) => {
   const mock = makeMockCallModel();
   const { server, base } = await boot(mock);
   t.after(() => server.close());
   store.clearSessions();
   candidateStore.clearCandidates();
 
-  const started = await post(base, '/api/start', {
-    mode: 'practice',
-    stage: 'behavioral',
-    feedback: 'simulation',
-  });
+  const started = await post(base, '/api/start', { stage: 'behavioral' });
   assert.equal(started.status, 200);
 
   let sessionId = started.body.sessionId;
@@ -711,12 +699,11 @@ test('simulation rounds withhold per-answer feedback but still reveal the round 
       final = a.body;
       break;
     }
-    assert.equal(a.body.feedback, null, 'simulation mode hides per-answer feedback');
+    assert.equal(a.body.feedback, null, 'the round runs without per-answer feedback');
     guard += 1;
-    assert.ok(guard < 30, 'simulation round did not finish');
+    assert.ok(guard < 30, 'round did not finish');
   }
-
-  assert.equal(final.feedback, null, 'simulation hides the final per-answer feedback too');
+  assert.ok(final.feedback, 'the held-back judge arrives with the report');
   assert.equal(final.report.stageVerdicts.length, 1, 'the round verdict is still produced');
   assert.ok(final.candidate, 'round results still attach to the candidate');
 });

@@ -205,7 +205,7 @@ export default function LandingPage() {
           <div className="mx-auto max-w-6xl px-5">
             <Section
               title="Every round, on demand"
-              description="Each stage has its own question bank and rubric, so a practice round is not a diluted full mock."
+              description="Each stage has its own question bank and rubric, so every round is a focused mock, not a diluted tour."
               className="py-16"
             >
               <div className="flex flex-wrap gap-2">

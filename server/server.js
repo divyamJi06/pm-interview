@@ -316,31 +316,30 @@ function createServer({
       json(res, 500, { ok: false, error: modelError ? modelError.message : 'No AI provider configured.' });
       return;
     }
-    const mode = body.mode === 'practice' ? 'practice' : 'mock';
+    // Every round is a single-stage mock. The old multi-stage "full mock" walk is
+    // gone, so `mode` is always 'mock' and a stage is always required.
+    const mode = 'mock';
     const practiceStage = body.stage || null;
     const track = trackFor(typeof body.track === 'string' ? body.track : 'pm');
-    if (mode === 'practice' && !track.config.stages.some((s) => s.name === practiceStage)) {
+    if (!track.config.stages.some((s) => s.name === practiceStage)) {
       return json(res, 400, { ok: false, error: `Unknown stage '${practiceStage}'.` });
     }
 
     let candidate = null;
     const requestedCandidate = typeof body.candidateId === 'string' ? body.candidateId : '';
-    if (mode === 'practice') {
-      if (requestedCandidate) {
-        candidate = candidateStore.getCandidate(requestedCandidate);
-        if (!candidate) {
-          return json(res, 400, { ok: false, error: `Unknown candidate '${requestedCandidate}'.` });
-        }
-      } else {
-        candidate = candidateStore.createCandidate({
-          trackId: track.id,
-          targetRoleAndLevel: typeof body.targetRole === 'string' ? body.targetRole : '',
-          resume: typeof body.resume === 'string' ? body.resume.trim().slice(0, MAX_RESUME_CHARS) : '',
-        });
+    if (requestedCandidate) {
+      candidate = candidateStore.getCandidate(requestedCandidate);
+      if (!candidate) {
+        return json(res, 400, { ok: false, error: `Unknown candidate '${requestedCandidate}'.` });
       }
+    } else {
+      candidate = candidateStore.createCandidate({
+        trackId: track.id,
+        targetRoleAndLevel: typeof body.targetRole === 'string' ? body.targetRole : '',
+        resume: typeof body.resume === 'string' ? body.resume.trim().slice(0, MAX_RESUME_CHARS) : '',
+      });
     }
 
-    const feedbackMode = body.feedback === 'simulation' ? 'simulation' : 'full';
     const targetRole = typeof body.targetRole === 'string' && body.targetRole.trim()
       ? body.targetRole
       : candidate
@@ -357,7 +356,7 @@ function createServer({
       mode,
       practiceStage,
       candidateId: candidate ? candidate.id : null,
-      feedbackMode,
+      feedbackMode: 'full',
       targetRoleAndLevel: targetRole,
       resume,
       // The verified id wins. The one in the body is only used when this
@@ -436,7 +435,7 @@ function createServer({
           });
         }
         store.saveSession(session.id);
-        if (session.mode === 'practice' && session.candidateId) {
+        if (session.candidateId) {
           const candidate = candidateStore.getCandidate(session.candidateId);
           if (candidate) {
             if (payload.state === 'final_report') {
@@ -483,7 +482,7 @@ function createServer({
   async function runFinalReport(session, runDeps, model) {
     const payload = await interview.finalizeSession(session, runDeps);
     const track = trackFor(session.trackId);
-    if (session.mode === 'practice' && session.candidateId) {
+    if (session.candidateId) {
       const candidate = candidateStore.getCandidate(session.candidateId);
       if (candidate) {
         rounds.mergeSessionIntoCandidate(candidate, session);

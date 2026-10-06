@@ -45,6 +45,9 @@ function makeCallModel(policy = 'per_question_probe') {
     if (prompt.includes('writing a stage-level verdict')) {
       return { stage_verdict: 'developing', summary: 'ok', strengths: [], gaps: [] };
     }
+    if (prompt.includes('writing the final overall assessment')) {
+      return { overall_verdict: 'developing', summary: 'ok', cross_stage_patterns: [], top_things_to_work_on: [], recommended_resources: [] };
+    }
     if (prompt.includes('You are coaching a PM interview candidate')) {
       return { action_plan: [], priority_order: [] };
     }

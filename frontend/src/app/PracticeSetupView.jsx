@@ -26,9 +26,7 @@ export default function PracticeSetupView() {
   const { setPreset } = usePrep();
   const queryStage = useQueryStage();
 
-  const [mode, setMode] = useState('practice');
   const [stage, setStage] = useState(queryStage || '');
-  const [feedback, setFeedback] = useState('full');
   const [voiceMode, setVoiceMode] = useState(() => localStorage.getItem('pm-voice-mode') !== 'off');
   const [live, setLive] = useState([]);
   const [serverStages, setServerStages] = useState([]);
@@ -58,15 +56,13 @@ export default function PracticeSetupView() {
 
   const start = useCallback(() => {
     setPreset({
-      mode,
       trackId: 'pm',
-      stage: mode === 'practice' ? stage : '',
-      feedback,
+      stage,
       voiceMode,
       autoStart: true,
     });
     navigate('/app/practice/interview');
-  }, [mode, stage, feedback, voiceMode, setPreset]);
+  }, [stage, voiceMode, setPreset]);
 
   const resume = useCallback(
     (sessionId) => {
@@ -95,7 +91,7 @@ export default function PracticeSetupView() {
               <ObjectCard key={s.sessionId} className="flex flex-wrap items-center justify-between gap-3 px-6 py-5">
                 <div className="min-w-0">
                   <div className="display text-[22px] leading-tight">
-                    {stageLabel(s.practiceStage) === 'Full mock interview' ? 'Full mock interview' : stageLabel(s.practiceStage)}
+                    {stageLabel(s.practiceStage) || 'Unfinished round'}
                   </div>
                   <p className="mono mt-1 text-[14px] text-mute">
                     {s.answers} answer{s.answers === 1 ? '' : 's'} · {new Date(s.startedAt).toLocaleString()}
@@ -111,70 +107,41 @@ export default function PracticeSetupView() {
       ) : null}
 
       <Section title="Which round?">
-        <div className="mb-6 flex gap-2">
-          {[
-            { value: 'practice', label: 'One round' },
-            { value: 'mock', label: 'Full mock' },
-          ].map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              onClick={() => setMode(o.value)}
-              className={cn(
-                'mono h-[46px] rounded-full border px-[22px] text-[18px] leading-[44px] transition-colors',
-                mode === o.value ? 'border-ink text-ink' : 'border-line bg-card text-mute hover:text-ink'
-              )}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-
-        {mode === 'mock' ? (
-          <div className="inset px-7 py-6">
-            <div className="display text-[26px] leading-tight">Full mock interview</div>
-            <p className="mt-2 text-[18px] text-mute">
-              Every gradeable round in sequence — estimation, design, case study, strategy, execution and behavioural.
-              Longest run, and the closest to a real loop.
-            </p>
-          </div>
-        ) : (
-          <div className="inset divide-y divide-line px-7 py-1">
-            {available.map((s) => {
-              const active = stage === s.id;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setStage(active ? '' : s.id)}
+        <div className="inset divide-y divide-line px-7 py-1">
+          {available.map((s) => {
+            const active = stage === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setStage(active ? '' : s.id)}
+                className={cn(
+                  'flex w-full items-center gap-4 py-4 text-left transition-colors',
+                  active ? 'text-ink' : 'text-mute hover:text-ink'
+                )}
+              >
+                <span
                   className={cn(
-                    'flex w-full items-center gap-4 py-4 text-left transition-colors',
-                    active ? 'text-ink' : 'text-mute hover:text-ink'
+                    'relative flex h-[22px] w-[22px] flex-none rounded-full border-[1.5px]',
+                    active ? 'border-ink' : 'border-line'
                   )}
                 >
                   <span
                     className={cn(
-                      'relative flex h-[22px] w-[22px] flex-none rounded-full border-[1.5px]',
-                      active ? 'border-ink' : 'border-line'
+                      'absolute inset-1 rounded-full bg-ink transition-transform',
+                      active ? 'scale-100' : 'scale-0'
                     )}
-                  >
-                    <span
-                      className={cn(
-                        'absolute inset-1 rounded-full bg-ink transition-transform',
-                        active ? 'scale-100' : 'scale-0'
-                      )}
-                    />
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-[22px] leading-tight">{s.label}</span>
-                    <span className="text-[16px] text-mute">{s.blurb}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+                  />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-[22px] leading-tight">{s.label}</span>
+                  <span className="text-[16px] text-mute">{s.blurb}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </Section>
 
       <Section title="How will you answer?">
@@ -207,23 +174,11 @@ export default function PracticeSetupView() {
       </Section>
 
       <Section title="Feedback">
-        <div className="flex gap-2">
-          {[
-            { value: 'full', label: 'Learn', hint: 'Coaching on each answer as you go.' },
-            { value: 'simulation', label: 'Simulation', hint: 'The interviewer stays in character. Feedback at the end.' },
-          ].map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              onClick={() => setFeedback(o.value)}
-              className={cn(
-                'mono h-[46px] rounded-full border px-[22px] text-[18px] leading-[44px] transition-colors',
-                feedback === o.value ? 'border-ink text-ink' : 'border-line bg-card text-mute hover:text-ink'
-              )}
-            >
-              {o.label}
-            </button>
-          ))}
+        <div className="inset px-7 py-6">
+          <p className="text-[18px] text-mute">
+            You answer the whole round without seeing a verdict. Every answer is judged and scored, and the
+            full feedback plus your report is released when the round ends.
+          </p>
         </div>
       </Section>
 
@@ -244,9 +199,9 @@ export default function PracticeSetupView() {
 
       <Section title="Ready">
         <div className="inset divide-y divide-line px-7 py-1">
-          <KeyValue label="Round">{mode === 'mock' ? 'Full mock interview' : stageLabel(stage) || 'Pick a round above'}</KeyValue>
+          <KeyValue label="Round">{stageLabel(stage) || 'Pick a round above'}</KeyValue>
           <KeyValue label="Answering">{voiceMode ? 'Voice' : 'Keyboard'}</KeyValue>
-          <KeyValue label="Feedback">{feedback === 'full' ? 'Learn' : 'Simulation'}</KeyValue>
+          <KeyValue label="Feedback">Released when the round ends</KeyValue>
           <KeyValue label="Interviewing for">{profile?.target_role || 'Not set'}</KeyValue>
         </div>
       </Section>
@@ -258,7 +213,7 @@ export default function PracticeSetupView() {
         <Button
           size="lg"
           className="w-[238px]"
-          disabled={needsLlmKey || needsSttKey || (mode === 'practice' && !stage)}
+          disabled={needsLlmKey || needsSttKey || !stage}
           onClick={start}
         >
           Start interview <ArrowRight className="h-4 w-4" />
