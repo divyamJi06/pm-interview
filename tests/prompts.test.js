@@ -97,6 +97,44 @@ test('director prompt includes the real-interview follow-up playbooks', () => {
   assert.ok(body.includes('flag "we"-heavy answers this way'));
 });
 
+// Without the question and answer in context the Director invents a follow-up
+// on an unrelated topic, and the next grading pass then scores the candidate
+// against a question they were never asked.
+test('director prompt is given the question and answer its follow-up must stay on', () => {
+  const body = loadPrompt('director');
+  assert.ok(body.includes('{{last_question}}'));
+  assert.ok(body.includes('{{last_answer}}'));
+  assert.ok(body.includes('Never introduce a different product, company, or'));
+  const filled = fillTemplate(body, {
+    stage_name: 'estimation',
+    stage_intent: 'approach matters',
+    questions_asked_this_stage: '1',
+    min_questions_this_stage: '1',
+    questions_remaining_this_stage: '0',
+    follow_ups_asked_this_question: '0',
+    follow_ups_asked_this_stage: '0',
+    clarifying_questions_this_stage: '0',
+    dialogue_turns_this_stage: '1',
+    time_elapsed_minutes: '2',
+    time_budget_minutes: '45',
+    time_remaining_minutes: '43',
+    pacing_gauge: 'relaxed',
+    intent_coverage: 'checklist: 3/8 steps hit',
+    last_question: 'Estimate WhatsApp users in Hyderabad.',
+    last_answer: 'Top-down from 10M metro population.',
+    last_judge_output: '{}',
+    last_answer_was_follow_up: 'false',
+    candidate_profile: '[]',
+    is_last_stage: 'false',
+    role: 'Product Management',
+    company_examples: 'tech',
+    senior_title: 'senior',
+  });
+  assert.ok(filled.includes('Estimate WhatsApp users in Hyderabad.'));
+  assert.ok(filled.includes('Top-down from 10M metro population.'));
+  assert.ok(!/\{\{/.test(filled), 'filled director prompt must not leak placeholders');
+});
+
 test('director prompt includes restrained real-interviewer demeanor guidance', () => {
   const body = loadPrompt('director');
   assert.ok(body.includes('Real-interviewer demeanor'));

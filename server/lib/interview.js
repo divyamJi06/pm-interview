@@ -307,6 +307,67 @@ function transcriptFromSession(session) {
   return transcript;
 }
 
+// Judges score each answer from 1 to 5 per dimension, and nothing else in the
+// pipeline produces a number, so any chart of "how am I doing" has to be built
+// from these. They are aggregated here rather than in the browser because the
+// per-answer judges are deliberately hidden from the transcript in mock and
+// simulation mode — a hidden judge must not become an unscored round on the
+// candidate's dashboard.
+//
+// Output is on a 0-100 scale so the client can chart it without knowing the
+// rubric uses 1-5.
+const SCORE_SCALE = 20;
+
+function aggregateScores(session) {
+  const buckets = new Map();
+  let answersScored = 0;
+  for (const triples of session.triples.values()) {
+    for (const t of triples) {
+      const scores = t.judge && t.judge.dimension_scores;
+      if (!scores || typeof scores !== 'object') continue;
+      let counted = false;
+      for (const [dim, raw] of Object.entries(scores)) {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) continue;
+        if (!buckets.has(dim)) buckets.set(dim, []);
+        buckets.get(dim).push(n);
+        counted = true;
+      }
+      if (counted) answersScored += 1;
+    }
+  }
+  if (!buckets.size) {
+    return { overall: null, byDimension: {}, answersScored: 0 };
+  }
+  const byDimension = {};
+  const means = [];
+  for (const [dim, values] of buckets) {
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    byDimension[dim] = Math.round(avg * SCORE_SCALE);
+    means.push(avg);
+  }
+  const overall = means.reduce((a, b) => a + b, 0) / means.length;
+  return {
+    overall: Math.round(overall * SCORE_SCALE),
+    byDimension,
+    answersScored,
+  };
+}
+
+function sessionCounts(session) {
+  let answers = 0;
+  let questions = 0;
+  let clarifications = 0;
+  for (const triples of session.triples.values()) {
+    for (const t of triples) {
+      if (t.answer) answers += 1;
+      if (t.question) questions += 1;
+      clarifications += (t.clarifications || []).length;
+    }
+  }
+  return { questions, answers, clarifications, stages: session.triples.size };
+}
+
 function begin(session, deps) {
   const stages = stagesFor(session, deps.config);
   const first = stages[0];
@@ -377,6 +438,9 @@ async function finishMockInterview({ session, deps }) {
   const stage = deps.loadStage(session.currentStageName);
   return buildBase(session, stage, deps, {
     state: 'final_report',
+    scores: aggregateScores(session),
+    counts: sessionCounts(session),
+    transcript: transcriptFromSession(session),
     report: {
       report,
       stageVerdicts: session.stageVerdicts,
@@ -414,6 +478,9 @@ async function finishPracticeSession({ session, deps }) {
   return buildBase(session, stage, deps, {
     state: 'final_report',
     feedback: session.feedbackMode === 'simulation' ? null : lastJudge,
+    scores: aggregateScores(session),
+    counts: sessionCounts(session),
+    transcript: transcriptFromSession(session),
     report: {
       mode: 'practice',
       stageVerdicts: session.stageVerdicts,
@@ -470,6 +537,9 @@ async function runAiDirector({ session, stage, judge, deps }) {
   const cfg = deps.config.stages.find((s) => s.name === stage.name) || {};
   const asked = session.questionsAsked.get(stage.name) || 0;
   const pacing = pacingFor(session, deps.config);
+  // The just-graded triple, which the judge scored: the follow-up has to be
+  // about this exact exchange.
+  const lastTriple = (session.triples.get(stage.name) || []).at(-1);
   const filled = deps.templateFiller(deps.promptReader('director'), {
     stage_name: stage.name,
     stage_intent: stage.rubric.intent,
@@ -485,7 +555,12 @@ async function runAiDirector({ session, stage, judge, deps }) {
     time_remaining_minutes: pacing.remaining,
     pacing_gauge: pacing.label,
     intent_coverage: summarizeJudge(stage, judge),
-    last_answer_was_follow_up: session.currentQuestion?.isFollowUp ? 'true' : 'false',
+    // The question and answer the grading below belongs to. Without these the
+    // Director has only a rubric and a verdict, and will invent a follow-up on
+    // whatever topic the rubric suggests.
+    last_question: lastTriple?.question || '(none)',
+    last_answer: lastTriple?.answer || '(none)',
+    last_answer_was_follow_up: lastTriple?.isFollowUp ? 'true' : 'false',
     last_judge_output: JSON.stringify(judge, null, 2),
     candidate_profile: formatProfile(session.profile),
     is_last_stage: isLastStage(session, deps) ? 'true' : 'false',

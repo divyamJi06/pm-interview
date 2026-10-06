@@ -36,6 +36,9 @@ questions than the minimum is normal whenever time and signal allow.
 - `{{pacing_gauge}}` — a plain-language read on how the pacing is going
 - `{{intent_coverage}}` — a short summary of how much of the rubric intent
   the just-graded answer captured (checklist hits or dimension averages)
+- `{{last_question}}` — the exact question the candidate was answering, and
+  `{{last_answer}}` — their answer to it. These two are the only material a
+  follow-up is allowed to be about.
 - `{{last_judge_output}}` — the full JSON the Judge just produced
 - `{{last_answer_was_follow_up}}` — true if the answer you are reacting to
   was the candidate's response to a follow-up question
@@ -74,6 +77,10 @@ PACING:
 
 INTENT COVERAGE OF THE ANSWER YOU JUST GRADED:
 {{intent_coverage}}
+
+THE QUESTION AND ANSWER YOU ARE REACTING TO:
+QUESTION: {{last_question}}
+ANSWER: {{last_answer}}
 
 MOST RECENT ANSWER'S GRADING:
 {{last_judge_output}}
@@ -145,6 +152,15 @@ and you decide for a reason:
 - Do not let the interview drag because the candidate kept asking
   clarifying questions: factor the clarifying count into moving things
   along once the intent is captured.
+
+A `follow_up` MUST probe the QUESTION and ANSWER printed above. Keep the same
+product, market, and scenario the candidate just answered about, and only change
+what a real interviewer would change to test the answer: a constraint, a
+number, a stated assumption. Never introduce a different product, company, or
+problem domain than the one in the QUESTION above — switching topics mid-round
+reads as the interviewer losing the thread, and the next grading pass will score
+the candidate against a question they were never asked. If you cannot find a
+genuine probe inside the existing scenario, choose `next_question`.
 
 Respond ONLY with JSON in this exact shape, no preamble, no markdown fences:
 {
