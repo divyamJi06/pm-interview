@@ -16,6 +16,7 @@ const { createTraceStore } = require('./lib/traceStore');
 const { createSessionFileStore } = require('./lib/sessionFileStore');
 const { createCandidateFileStore } = require('./lib/candidateFileStore');
 const { isUserError } = require('./lib/userError');
+const { createUserVerifier, bearerFrom, ownsSession } = require('./lib/auth');
 const { fillTemplate } = require('./lib/promptFiller');
 const traceAnalysis = require('./lib/traceAnalysis');
 const store = require('./lib/sessionStore');
@@ -24,14 +25,68 @@ const rounds = require('./lib/rounds');
 const interview = require('./lib/interview');
 
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
-const INDEX_FILE = path.join(PUBLIC_DIR, 'index.html');
+const REACT_DIST_DIR = path.resolve(__dirname, '..', 'frontend', 'dist');
 const DEFAULT_TRACE_DIR = path.resolve(__dirname, '..', 'traces');
 const DEFAULT_SESSION_DIR = path.resolve(__dirname, '..', 'sessions');
 const DEFAULT_CANDIDATE_DIR = path.resolve(__dirname, '..', 'candidates');
 
+const STATIC_TYPES = {
+  css: 'text/css; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  mjs: 'text/javascript; charset=utf-8',
+  map: 'application/json; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+  svg: 'image/svg+xml',
+  png: 'image/png',
+  webp: 'image/webp',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  ico: 'image/x-icon',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
+  txt: 'text/plain; charset=utf-8',
+};
+const INDEX_TYPES = { html: 'text/html; charset=utf-8' };
+
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_AUDIO_BYTES = 32 * 1024 * 1024;
 const MAX_RESUME_CHARS = 8000;
+
+// Bring-your-own-key. The candidate's Cohere key arrives with the request that
+// needs it and is held in memory against the session id. It is never written to
+// the session, so it cannot reach the session files, and never echoed back to a
+// client. A server restart drops it and the session falls back to COHERE_API_KEY
+// from .env, which is the right trade: losing a key beats leaving one on disk.
+const sessionKeys = new Map();
+
+  // Only Cohere is offered in the UI, so only Cohere is accepted here. An
+  // unexpected provider is rejected rather than silently forwarded.
+  const BYOK_PROVIDER = 'cohere';
+  const STT_PROVIDERS = new Set(['cohere', 'openai', 'deepgram']);
+
+  function requestedSttProvider(value) {
+    const name = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return STT_PROVIDERS.has(name) ? name : '';
+  }
+function cleanKey(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 200);
+}
+
+function rememberSessionKeys(sessionId, { llm, stt }) {
+  const entry = { llm: cleanKey(llm), stt: cleanKey(stt) };
+  if (!entry.llm && !entry.stt) {
+    sessionKeys.delete(sessionId);
+    return entry;
+  }
+  sessionKeys.set(sessionId, entry);
+  return entry;
+}
+
+function sessionKeysFor(sessionId) {
+  return sessionKeys.get(sessionId) || { llm: '', stt: '' };
+}
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -93,7 +148,16 @@ function activeSessionSummary(s) {
 function createServer({
   config = null,
   callModel,
+  // Injectable so a test can observe the key a candidate brought without
+  // reaching Cohere. Defaults to the real factory.
+  callModelFactory = createCallModel,
   transcriber = null,
+  // Same reasoning for speech: the per-request transcriber is built from the
+  // candidate's own key, and a test needs to watch that without calling Cohere.
+  transcriberFactory = createTranscriber,
+  // Injectable for the same reason: auth is exercised against a stub, not
+  // against a live Supabase project.
+  verifier = null,
   speaker = null,
   rng = Math.random,
   publicDir = PUBLIC_DIR,
@@ -104,13 +168,14 @@ function createServer({
 } = {}) {
   let liveCallModel = callModel;
   let callModelError = null;
+  // Held only so tests can inject a stub. Live requests build a transcriber per
+  // request, because the key and the provider both depend on the caller.
   let liveTranscriber = transcriber;
   let liveSpeaker = speaker;
-
-  function getTranscriber() {
-    if (!liveTranscriber) liveTranscriber = createTranscriber();
-    return liveTranscriber;
-  }
+  // Resolves the caller's access token to a user id, or reports that this
+  // deployment is not checking. Created once so its verification cache survives
+  // across requests.
+  const authVerifier = verifier || createUserVerifier();
 
   function getSpeaker() {
     if (!liveSpeaker) liveSpeaker = createSpeaker();
@@ -125,6 +190,37 @@ function createServer({
       callModelError = err;
     }
     return liveCallModel;
+  }
+
+  // A model bound to the key the candidate supplied for this session. Falls back
+  // to the server's own key when they did not supply one, so a shared deployment
+  // still works for anyone who has not set a key yet.
+  function modelForSession(sessionId) {
+    const { llm } = sessionKeysFor(sessionId);
+    if (!llm) return { model: getCallModel(), error: callModelError };
+    try {
+      return {
+        model: callModelFactory({ provider: BYOK_PROVIDER, apiKey: llm, maxTokens: 4096, temperature: 0 }),
+        error: null,
+      };
+    } catch (err) {
+      return { model: null, error: err };
+    }
+  }
+
+  // Builds a transcriber for one request. The candidate's speech key is held
+  // against the session, so a recording only has to carry the session id — the
+  // key does not travel with every clip. A key in the body wins, which is how a
+  // client that has not started a session yet can still record.
+  //
+  // The provider is taken from the request when the client knows it is on
+  // Cohere, because the client has to convert the audio format to match, and a
+  // Chrome webm clip is rejected by Cohere but fine for Deepgram.
+  function transcriberForRequest(sessionId, body) {
+    const key = cleanKey(body && body.apiKey) || sessionKeysFor(sessionId).stt;
+    const asked = requestedSttProvider(body && body.provider) || requestedSttProvider(body && body.queryProvider);
+    const provider = asked || (key ? BYOK_PROVIDER : process.env.STT_PROVIDER || 'deepgram');
+    return transcriberFactory({ provider, apiKey: key || undefined });
   }
 
   function trackFor(trackId) {
@@ -200,9 +296,26 @@ function createServer({
     return candidate.debriefReport;
   }
 
-  function handleStart(body, res) {
-    const model = ensureModel(res);
-    if (!model) return;
+  function handleStart(body, res, auth) {
+    // The candidate's own key is used for the very first call, which happens
+    // inside interview.begin below, before there is a session id to hang it on.
+    const ownKey = cleanKey(body.apiKey);
+    let model = null;
+    let modelError = null;
+    if (ownKey) {
+      try {
+        model = callModelFactory({ provider: BYOK_PROVIDER, apiKey: ownKey });
+      } catch (err) {
+        modelError = err;
+      }
+    } else {
+      model = getCallModel();
+      modelError = callModelError;
+    }
+    if (!model) {
+      json(res, 500, { ok: false, error: modelError ? modelError.message : 'No AI provider configured.' });
+      return;
+    }
     const mode = body.mode === 'practice' ? 'practice' : 'mock';
     const practiceStage = body.stage || null;
     const track = trackFor(typeof body.track === 'string' ? body.track : 'pm');
@@ -247,7 +360,15 @@ function createServer({
       feedbackMode,
       targetRoleAndLevel: targetRole,
       resume,
+      // The verified id wins. The one in the body is only used when this
+      // deployment has no Supabase to verify against.
+      userId: auth && auth.userId
+        ? auth.userId
+        : typeof body.userId === 'string'
+          ? body.userId.slice(0, 64)
+          : null,
     });
+    rememberSessionKeys(session.id, { llm: ownKey, stt: cleanKey(body.sttApiKey) });
     if (candidate && candidate.profile.length) {
       session.profile = candidate.profile.slice();
     }
@@ -257,12 +378,17 @@ function createServer({
     return json(res, 200, payload);
   }
 
-  function handleAnswer(body, res) {
-    const model = ensureModel(res);
-    if (!model) return;
+  function handleAnswer(body, res, auth) {
     const session = store.getSession(String(body.sessionId || ''));
     if (!session) {
       return json(res, 404, { ok: false, error: 'Session not found. Start a new interview.' });
+    }
+    if (!ownsSession(session, auth)) {
+      return json(res, 403, { ok: false, error: 'That interview belongs to another candidate.' });
+    }
+    const { model, error: modelError } = modelForSession(session.id);
+    if (!model) {
+      return json(res, 500, { ok: false, error: modelError ? modelError.message : 'No AI provider configured.' });
     }
     if (typeof body.answer !== 'string' || body.answer.trim().length === 0) {
       return json(res, 400, { ok: false, error: 'Answer cannot be empty.' });
@@ -378,28 +504,46 @@ function createServer({
     logger.info(`Final report ready for session ${session.id}`);
   }
 
-  return http.createServer((req, res) => {
+  return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const route = `${req.method} ${url.pathname}`;
 
+    // The built React app wins when it exists, so `node server/server.js` serves the
+    // revamp instead of the old public/index.html monolith. publicDir stays the
+    // fallback and the seam tests use.
+    const appDir = fs.existsSync(path.join(REACT_DIST_DIR, 'index.html')) ? REACT_DIST_DIR : publicDir;
+
     if (route === 'GET /' || route === 'GET /index.html') {
-      fs.readFile(INDEX_FILE, (err, data) => {
+      fs.readFile(path.join(appDir, 'index.html'), (err, data) => {
         if (err) return json(res, 500, { ok: false, error: 'index.html missing' });
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         res.end(data);
       });
       return;
     }
 
-    const STATIC_EXT = new Set(['css', 'js', 'svg', 'png', 'ico']);
-    if (req.method === 'GET' && /^\/[A-Za-z0-9._-]+$/.test(url.pathname)) {
-      const filePath = path.join(publicDir, path.basename(url.pathname));
-      const ext = path.extname(filePath).slice(1).toLowerCase();
-      if (STATIC_EXT.has(ext) && fs.existsSync(filePath)) {
-        const types = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', svg: 'image/svg+xml', png: 'image/png', ico: 'image/x-icon' };
-        fs.readFile(filePath, (err, data) => {
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+      const target = path.resolve(appDir, rel);
+      const inside = target === appDir || target.startsWith(appDir + path.sep);
+      const ext = path.extname(target).slice(1).toLowerCase();
+      if (inside && ext && STATIC_TYPES[ext] && fs.existsSync(target) && fs.statSync(target).isFile()) {
+        fs.readFile(target, (err, data) => {
           if (err) return json(res, 500, { ok: false, error: 'static file error' });
-          res.writeHead(200, { 'content-type': types[ext], 'cache-control': 'no-store' });
+          res.writeHead(200, {
+            'content-type': STATIC_TYPES[ext],
+            'cache-control': ext === 'html' ? 'no-store' : 'public, max-age=3600',
+          });
+          res.end(data);
+        });
+        return;
+      }
+      // Client-side routes such as /app/profile have no extension: hand back the
+      // shell and let the router resolve them.
+      if (inside && !ext) {
+        fs.readFile(path.join(appDir, 'index.html'), (err, data) => {
+          if (err) return json(res, 404, { ok: false, error: 'not found' });
+          res.writeHead(200, { 'content-type': INDEX_TYPES.html, 'cache-control': 'no-store' });
           res.end(data);
         });
         return;
@@ -407,7 +551,7 @@ function createServer({
     }
 
     if (route === 'GET /api/health') {
-      json(res, 200, { ok: true });
+      json(res, 200, { ok: true, auth: authVerifier.state() });
       return;
     }
 
@@ -422,15 +566,30 @@ function createServer({
       return;
     }
 
+    // Everything past this point can spend a key, read a transcript or change a
+    // session, so it needs to know who is asking. `auth` is carried through to
+    // the handlers that own something, so they can check it belongs to them.
+    let auth = null;
+    if (url.pathname.startsWith('/api/')) {
+      auth = await authVerifier.verify(bearerFrom(req));
+      if (!auth.ok) return json(res, auth.status, { ok: false, error: auth.error, signIn: auth.status === 401 });
+    }
+
     if (route === 'GET /api/transcribe/config') {
       try {
-        const t = getTranscriber();
+        // Asked with a session id and a provider so a candidate who brought
+        // their own Cohere key is told voice is on, and is told to record in a
+        // format Cohere accepts, even when the server has no key in .env.
+        const sessionId = url.searchParams.get('sessionId') || '';
+        const t =
+          liveTranscriber || transcriberForRequest(sessionId, { provider: url.searchParams.get('provider') });
         json(res, 200, {
           ok: true,
           enabled: t.enabled,
           provider: t.provider,
           model: t.model,
           language: t.language,
+          byok: Boolean(sessionKeysFor(sessionId).stt),
         });
       } catch (err) {
         json(res, 200, { ok: false, enabled: false, error: err.message });
@@ -451,9 +610,21 @@ function createServer({
     }
 
     if (route === 'GET /api/sessions') {
+      // Filtered by whoever is actually calling, not by the id in the query
+      // string: that one is a claim. Sessions with no owner predate accounts, so
+      // under enforcement they belong to nobody and are left out; without
+      // enforcement a local install still sees them all.
+      const userId = auth.enforced ? auth.userId : url.searchParams.get('userId');
+      const mine = (s) => {
+        if (auth.enforced) return s.userId === userId;
+        return !userId || !s.userId || s.userId === userId;
+      };
       json(res, 200, {
         ok: true,
-        sessions: store.list().filter((s) => s.awaiting === 'answer').map(activeSessionSummary),
+        sessions: store
+          .list()
+          .filter((s) => s.awaiting === 'answer' && mine(s))
+          .map(activeSessionSummary),
       });
       return;
     }
@@ -464,8 +635,13 @@ function createServer({
       if (!session) {
         return json(res, 404, { ok: false, error: 'Session not found.' });
       }
+      if (!ownsSession(session, auth)) {
+        return json(res, 403, { ok: false, error: 'That interview belongs to another candidate.' });
+      }
       if (!session.finalPayload && session.awaiting === 'final_report') {
-        const model = getCallModel();
+        // With the session's key, so a candidate who brought their own does not
+        // have the closing report quietly billed to the server's account.
+        const { model } = modelForSession(session.id);
         if (model) scheduleFinalReport(session, model);
       }
       if (!session.finalPayload) {
@@ -480,6 +656,9 @@ function createServer({
       if (!session || session.awaiting !== 'answer') {
         return json(res, 404, { ok: false, error: 'Active session not found.' });
       }
+      if (!ownsSession(session, auth)) {
+        return json(res, 403, { ok: false, error: 'That interview belongs to another candidate.' });
+      }
       const track = trackFor(session.trackId);
       const payload = interview.resume(session, deps(null, track));
       const candidate = session.candidateId ? candidateStore.getCandidate(session.candidateId) : null;
@@ -489,7 +668,7 @@ function createServer({
 
     if (route === 'POST /api/start') {
       readJsonBody(req)
-        .then((body) => handleStart(body, res))
+        .then((body) => handleStart(body, res, auth))
         .catch((err) => json(res, 400, { ok: false, error: err.message }));
       return;
     }
@@ -555,7 +734,7 @@ function createServer({
 
     if (route === 'POST /api/answer') {
       readJsonBody(req)
-        .then((body) => handleAnswer(body, res))
+        .then((body) => handleAnswer(body, res, auth))
         .catch((err) => json(res, 400, { ok: false, error: err.message }));
       return;
     }
@@ -563,23 +742,36 @@ function createServer({
     if (route === 'POST /api/transcribe') {
       readJsonBody(req, Math.ceil(MAX_AUDIO_BYTES * 1.4))
         .then((body) => {
+          const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+          // Recording costs the candidate's own key, so it is checked as strictly
+          // as spending their key on an answer.
+          const session = store.getSession(sessionId);
+          if (session && !ownsSession(session, auth)) {
+            return json(res, 403, { ok: false, error: 'That interview belongs to another candidate.' });
+          }
           let t;
           try {
-            t = getTranscriber();
+            // The candidate's speech key is held against the session, so a
+            // recording only has to carry the session id — the key does not
+            // travel with every clip. A key in the body wins, which is how the
+            // interview view sends one for a session it has just resumed.
+            t = liveTranscriber || transcriberForRequest(sessionId, body);
           } catch (err) {
             return json(res, 503, { ok: false, error: err.message });
           }
           if (!t.enabled) {
             return json(res, 503, {
               ok: false,
-              error: `Voice input is not configured. Set STT_PROVIDER and ${t.envKey} in .env to enable it.`,
+              error:
+                t.provider === BYOK_PROVIDER
+                  ? 'Voice input needs a Cohere API key. Add one in Settings before recording an answer.'
+                  : `Voice input is not configured. Set STT_PROVIDER and ${t.envKey} in .env to enable it.`,
             });
           }
           const audio = typeof body.audio === 'string' ? Buffer.from(body.audio, 'base64') : null;
           if (!audio || audio.length === 0) {
             return json(res, 400, { ok: false, error: 'No audio received.' });
           }
-          const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
           const contentType = typeof body.contentType === 'string' ? body.contentType : '';
           const recordTrace = (record) => {
             if (traceStore && sessionId) {

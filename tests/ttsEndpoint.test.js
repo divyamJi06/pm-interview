@@ -6,6 +6,7 @@ const path = require('path');
 const { once } = require('node:events');
 
 const { createServer } = require('../server/server');
+const noAuth = require('./helpers/noAuth');
 const { createSpeaker } = require('../server/lib/speech');
 const { createTraceStore } = require('../server/lib/traceStore');
 
@@ -27,7 +28,7 @@ function audioResponse(body, contentType = 'audio/mpeg') {
 }
 
 async function boot({ speaker, traceStore } = {}) {
-  const server = createServer({ speaker, traceStore });
+  const server = createServer({ verifier: noAuth(), speaker, traceStore });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address();

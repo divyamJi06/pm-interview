@@ -69,7 +69,10 @@ feedback timing chosen by you.
   answer — it cleanly told them apart
 - **The full app is now implemented:** a plain-Node server
   (`server/server.js`), the four-role loop (`server/lib/interview.js`),
-  in-memory sessions, and a single-page frontend (`public/index.html`).
+  in-memory sessions, and a React frontend (`frontend/`, built with Vite).
+  `npm run build` emits `frontend/dist`, which the server serves in
+  preference to the legacy `public/index.html` monolith; deep links like
+  `/app/profile` fall back to the app shell.
   Practice rounds and full mock interview both work. Decisions in
   `server/config/stage_order.md` are made (feedback revealed at stage
   boundaries; a 90-minute mock budget and a 40-minute round budget) and are
@@ -132,6 +135,21 @@ feedback timing chosen by you.
   every browser. Each transcription is priced per minute of audio and
   tagged `stt` in the existing `cost-summary.json` per-role breakdown.
 
+- **Accounts are optional but real when configured.** Supabase owns
+  profiles, interview history and reports (`supabase/migrations/001_init.sql`,
+  row level security on). With the Supabase URL + publishable/anon key set on
+  the server, every `/api/*` route requires a Supabase JWT
+  (`Authorization: Bearer`) and can only touch that user's sessions and
+  candidates. With no Supabase env the server runs open on localhost, which
+  is the single-user dev mode.
+- **Bring-your-own-key.** The interview can run on the candidate's own Cohere
+  key instead of the server's: keys are entered in `/app/profile`, kept in
+  `localStorage` (`pm-key:llm`, `pm-key:stt`), and sent per request to
+  `/api/start`. We keep no copy — there is no key table in the database and no
+  sync. The server holds a key in memory for that session only, never writes it
+  to disk or to a trace, and forgets it on restart. Clearing site data deletes
+  it for good.
+
 ## Running it
 
 The app auto-loads a `.env` file from the project root on startup (copy
@@ -144,8 +162,47 @@ COHERE_API_KEY=your-key-here
 ```
 
 ```sh
-npm start                     # http://127.0.0.1:3000
+npm start                     # http://127.0.0.1:3000  (API + built frontend)
 ```
+
+### Frontend
+
+The UI is a Vite app in `frontend/`. For development run the API and Vite
+side by side — Vite proxies `/api` to port 3000:
+
+```sh
+npm install --prefix frontend
+npm run dev:web                       # http://127.0.0.1:5173
+```
+
+For a production-style run, build once and let the Node server serve it:
+
+```sh
+npm run build                       # writes frontend/dist (git-ignored)
+npm start                          # serves the built app on :3000
+```
+
+### Accounts (Supabase, optional)
+
+```sh
+# run once in the Supabase SQL editor
+supabase/migrations/001_init.sql
+
+# frontend/.env.local  (VITE_ vars are the only ones the browser sees)
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+
+# .env (server side, enables the auth gate)
+# any of these name pairs works: SUPABASE_URL/SUPABASE_ANON_KEY, or the
+# NEXT_PUBLIC_ spellings copied from a Next.js tutorial
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
+```
+
+The anon key is safe in the browser; row level security is what keeps users
+apart. Never ship the `service_role` key to the frontend. Without Supabase
+configured the app still runs — no accounts, no history sync, open API on
+localhost.
 
 Pick a provider with `AI_PROVIDER` and set its key and (optionally) model
 (in `.env` or exported env vars):
@@ -195,15 +252,12 @@ a session resumed after a server restart continues numbering (e.g. at
 `080`) instead of re-writing from `001`, so a trace folder always holds
 exactly one clean attempt.
 
-The frontend has **Review sessions** and **Diff sessions** tabs (next to
-Interview). Review lists every traced session and, when you pick one, shows
-a reconstructed transcript (questions, answers, clarifying exchanges, Judge
-verdicts, Director decisions, stage/final reports), per-role cost bars, and
-the full raw prompt + output of every model call. Diff compares two sessions
-side by side: a summary table (calls, tokens, cost, counts of questions /
-answers / follow-ups / clarifications, verdict mix) plus an aligned timeline,
-with rows that differ between the sessions highlighted. The reconstruction
-lives in `server/lib/traceAnalysis.js`.
+Traces are read back over HTTP: `GET /api/traces` lists every traced session and
+`GET /api/traces/:name` returns a reconstructed transcript (questions, answers,
+clarifying exchanges, Judge verdicts, Director decisions, stage/final reports),
+per-role cost bars, and the raw prompt + output of every model call. The
+reconstruction lives in `server/lib/traceAnalysis.js`. Both routes require a
+signed-in candidate once Supabase is configured.
 
 In-progress sessions are snapshotted to `sessions/` after every turn. If
 the server goes down mid-interview, restart it and the **Resume** dropdown
@@ -228,15 +282,20 @@ the model has no entry in the price table, so unknown models never show a
 fabricated number. The table lives in `server/lib/callModel.js` (`PRICING`)
 and is easy to extend as prices change.
 
-## Why file-based, no DB, no framework (for now)
+## Why file-based content, in-memory sessions
 
-The current goal is to validate that the rubrics and prompts actually
-produce good judgment, not to build production infrastructure. Markdown
-files are the "database" for questions and rubrics; a single process
-holds session state in memory and snapshots it to `sessions/` after every
-turn so in-progress interviews can be resumed after a restart. None of
-this blocks moving to a real database later — the rubric and prompt
-content doesn't change either way.
+The rubrics, questions, prompts and coaching bank are markdown files on
+disk — content is meant to be diffable and hand-editable, not queried.
+A single process holds session state in memory and snapshots it to
+`sessions/` after every turn so in-progress interviews resume after a
+restart.
+
+A database arrived only where it was actually needed: durable, per-user
+data. Supabase now stores profiles, interview history, reports and
+optional key sync (`supabase/migrations/001_init.sql`). Sessions,
+candidates and rubric content stay on disk/in memory, because that is
+what makes a single-process run reproducible and easy to inspect.
+
 
 ## Folder structure
 
@@ -251,7 +310,12 @@ server/server.js            the running app (Node stdlib only, no deps)
 server/lib/                 loadStage, sessionStore, prompts, promptFiller,
                             callModel, traceStore, traceAnalysis, transcribe,
                             and interview (the four-role loop)
-public/index.html           the single-page frontend
+frontend/                   the React app (Vite): landing, auth, onboarding,
+                            dashboard, practice setup, interview, history,
+                            report detail, profile/key settings
+frontend/dist/              build output, git-ignored, served by server/server.js
+public/index.html           legacy single-page frontend (fallback)
+supabase/migrations/        SQL schema + row level security
 traces/                     per-session model-call traces + cost summaries
 sessions/                   in-progress session snapshots for resume (gitignored)
 candidates/                 candidate profiles shared across practice rounds (gitignored)
@@ -260,6 +324,12 @@ tests/                      automated tests: parsers, store, prompt filling,
 tests/golden-sets/          hand-graded sample answers, one file per stage
 tests/director-scenarios/   synthetic scenarios for testing the Director in isolation
 docs/architecture.md        the four-role loop, explained in more depth
+docs/workflow.md           session lifecycle, stage flow, reporting
+docs/api.md                HTTP reference, auth model, error codes
+docs/frontend.md           React app: routing, state, components, build
+docs/accounts.md           Supabase setup, schema, RLS, what is stored
+docs/keys.md               bring-your-own-key: where keys live, why
+docs/UI.md                 UI specification for redesigning the interface
 ```
 
 ## Next steps, in order

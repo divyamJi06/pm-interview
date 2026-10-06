@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 
 const { createServer } = require('../server/server');
+const noAuth = require('./helpers/noAuth');
 const { listTracks, getTrack, resetRegistry } = require('../server/config/tracks');
 const { loadStage } = require('../server/lib/loadStage');
 
@@ -27,7 +28,7 @@ const DEV_STAGES = [
 
 async function boot() {
   const mock = { callModel() { throw new Error('no model calls expected'); } };
-  const server = createServer({ callModel: mock.callModel, rng: () => 0 });
+  const server = createServer({ verifier: noAuth(), callModel: mock.callModel, rng: () => 0 });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address();

@@ -31,7 +31,7 @@ function deserializeSession(data) {
   return session;
 }
 
-function createSession({ trackId = 'pm', mode, practiceStage = null, targetRoleAndLevel = '', resume = '', candidateId = null, feedbackMode = 'full' } = {}) {
+function createSession({ trackId = 'pm', mode, practiceStage = null, targetRoleAndLevel = '', resume = '', candidateId = null, feedbackMode = 'full', userId = null } = {}) {
   const id = crypto.randomUUID();
   const session = {
     id,
@@ -40,6 +40,10 @@ function createSession({ trackId = 'pm', mode, practiceStage = null, targetRoleA
     practiceStage,
     candidateId,
     feedbackMode,
+    // Which signed-in candidate started this run. Not a secret and not used for
+    // authorisation — the browser's Supabase token is — but it is what lets the
+    // dashboard ask "my live sessions" instead of "all sessions on this box".
+    userId,
     targetRoleAndLevel,
     resume,
     stageIndex: 0,

@@ -6,6 +6,7 @@ const path = require('path');
 const { once } = require('node:events');
 
 const { createServer } = require('../server/server');
+const noAuth = require('./helpers/noAuth');
 const { createTranscriber } = require('../server/lib/transcribe');
 const { createTraceStore } = require('../server/lib/traceStore');
 
@@ -21,7 +22,7 @@ function fakeFetch(result) {
 }
 
 async function boot({ transcriber, traceStore } = {}) {
-  const server = createServer({ transcriber, traceStore });
+  const server = createServer({ verifier: noAuth(), transcriber, traceStore });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address();

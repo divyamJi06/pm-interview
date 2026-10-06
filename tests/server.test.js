@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { createServer } = require('../server/server');
+const noAuth = require('./helpers/noAuth');
 const { loadStageOrder } = require('../server/config/stageOrder');
 const store = require('../server/lib/sessionStore');
 const candidateStore = require('../server/lib/candidateStore');
@@ -98,7 +99,7 @@ function makeMockCallModel() {
 }
 
 async function boot(mock) {
-  const server = createServer({ callModel: mock.callModel, config: loadStageOrder(), rng: () => 0 });
+  const server = createServer({ verifier: noAuth(), callModel: mock.callModel, config: loadStageOrder(), rng: () => 0 });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address();
@@ -475,7 +476,7 @@ test('trace endpoints list and serve sessions from the configured traceDir', asy
   );
 
   const mock = makeMockCallModel();
-  const server = createServer({ callModel: mock.callModel, config: loadStageOrder(), traceDir: root });
+  const server = createServer({ verifier: noAuth(), callModel: mock.callModel, config: loadStageOrder(), traceDir: root });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => server.close());
@@ -514,7 +515,7 @@ test('trace list is empty when no sessions are traced', async (t) => {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
   const mock = makeMockCallModel();
-  const server = createServer({ callModel: mock.callModel, config: loadStageOrder(), traceDir: root });
+  const server = createServer({ verifier: noAuth(), callModel: mock.callModel, config: loadStageOrder(), traceDir: root });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => server.close());
@@ -809,7 +810,7 @@ test('completing all graded rounds auto-runs the candidate debrief', async (t) =
 
 test('deferred final report shows analyzing then serves the report endpoint', async (t) => {
   const mock = makeMockCallModel();
-  const server = createServer({ callModel: mock.callModel, config: loadStageOrder(), rng: () => 0, deferFinalReport: true });
+  const server = createServer({ verifier: noAuth(), callModel: mock.callModel, config: loadStageOrder(), rng: () => 0, deferFinalReport: true });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => server.close());
