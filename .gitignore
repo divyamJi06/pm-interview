@@ -16,3 +16,5 @@ candidates/
 
 
 data/
+# Vite build output
+frontend/dist/

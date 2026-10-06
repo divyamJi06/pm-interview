@@ -1,0 +1,225 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   The paper look.
+
+   These are the same tokens the product film renders with, so a screen in the
+   app and the same screen in the promo are the same picture: Instrument Serif
+   for anything that is a title, Inter for prose, Geist Mono for anything that
+   is a value, label or key. Colours are the film's seven, unmixed.
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('/fonts/InstrumentSerif.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter.ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/GeistMono.ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --radius: 0.875rem;
+
+  /* the film's palette, named the way the film names it */
+  --ground: #f8f8f6;
+  --deep: #ededea;
+  --paper: #ffffff;
+  --line: #e4e4e0;
+  --mute: #83837f;
+  --ink: #161616;
+  --accent: #17a05e;
+  --alert: #b42323;
+  --brass: #b9832c;
+
+  /* shadcn aliases, pointed at the film's names */
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: #ffffff;
+  --secondary: var(--deep);
+  --secondary-foreground: var(--ink);
+  --muted: var(--deep);
+  --muted-foreground: var(--mute);
+  --accent-fg: var(--ink);
+  --destructive: var(--alert);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: #9b9b96;
+
+  --good: #17a05e;
+  --developing: var(--brass);
+  --weak: #b42323;
+  --chart-bars: var(--ink);
+
+  --display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --text: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.dark {
+  /* the dark palette is the film's ink and deep swapped, not a second design */
+  --ground: #161616;
+  --deep: #1f1f1e;
+  --paper: #1b1b1a;
+  --line: #2e2e2c;
+  --mute: #9a9a95;
+  --ink: #f4f4f1;
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: #161616;
+  --secondary: var(--deep);
+  --secondary-foreground: var(--ink);
+  --muted: var(--deep);
+  --muted-foreground: var(--mute);
+  --destructive: #d75a5a;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: #6f6f6b;
+  --good: #34c07d;
+  --developing: #d19a3c;
+  --weak: #d75a5a;
+  --chart-bars: var(--ink);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent-fg);
+  --color-accent-foreground: var(--accent-fg);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-good: var(--good);
+  --color-developing: var(--developing);
+  --color-weak: var(--weak);
+  --color-chart-bars: var(--chart-bars);
+  --color-ink: var(--ink);
+  --color-mute: var(--mute);
+  --color-line: var(--line);
+  --color-ground: var(--ground);
+  --color-deep: var(--deep);
+  --color-paper: var(--paper);
+  --color-brass: var(--brass);
+  --font-display: var(--display);
+  --font-sans: var(--text);
+  --font-mono: var(--mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  font-family: var(--text);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--ground);
+  color: var(--ink);
+}
+
+/* Titles are the serif. Anything that is a label, value, key or count is mono. */
+.display {
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+.mono,
+.mono * {
+  font-family: var(--mono);
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+}
+.kicker {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.num {
+  font-family: var(--mono);
+  color: var(--mute);
+}
+
+/* The window the film puts on the stage. */
+.window {
+  background: var(--paper);
+  border-radius: var(--radius);
+  box-shadow:
+    0 40px 90px -30px rgb(20 20 20 / 0.3),
+    0 0 0 1px rgb(0 0 0 / 0.05);
+}
+.dark .window {
+  box-shadow:
+    0 40px 90px -30px rgb(0 0 0 / 0.6),
+    0 0 0 1px rgb(255 255 255 / 0.06);
+}
+
+/* A field that reads as an inset surface rather than a form control. */
+.inset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
