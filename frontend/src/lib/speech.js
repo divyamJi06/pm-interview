@@ -1,3 +1,5 @@
+import { getAccessToken } from './utils';
+
 export class Speaker {
   constructor() {
     this.el = null;
@@ -34,9 +36,12 @@ export class Speaker {
   }
 
   async speakServer(text) {
+    const headers = { 'content-type': 'application/json' };
+    const token = getAccessToken();
+    if (token) headers.authorization = 'Bearer ' + token;
     const res = await fetch('/api/tts', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify({ sessionId: this.sessionId, text }),
     });
     const data = await res.json();
@@ -160,6 +165,7 @@ export class Recorder {
   }
 
   toggle({ busy, sttEnabled, sessionId, speechMs = 0, setRecording }) {
+    this.setRecordingUI = setRecording;
     if (this.recording) {
       this.stop();
       return;
@@ -214,6 +220,7 @@ export class Recorder {
   stop() {
     if (!this.recording) return;
     this.recording = false;
+    if (this.setRecordingUI) this.setRecordingUI(false);
     if (this.media && this.media.state !== 'inactive') this.media.stop();
   }
 
@@ -243,7 +250,12 @@ export class Recorder {
       });
       const res = await fetch('/api/transcribe', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: (() => {
+          const h = { 'content-type': 'application/json' };
+          const token = getAccessToken();
+          if (token) h.authorization = 'Bearer ' + token;
+          return h;
+        })(),
         body: JSON.stringify({ sessionId, audio: b64, contentType: blob.type }),
       });
       const data = await res.json();

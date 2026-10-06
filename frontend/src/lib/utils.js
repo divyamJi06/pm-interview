@@ -64,6 +64,10 @@ export function setAccessToken(token) {
   accessToken = token || null;
 }
 
+export function getAccessToken() {
+  return accessToken;
+}
+
 export async function json(method, path, body, token) {
   const headers = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
