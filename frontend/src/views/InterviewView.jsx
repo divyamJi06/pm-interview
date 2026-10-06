@@ -76,6 +76,11 @@ export default function InterviewView({ preset, onPresetConsumed }) {
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [mediaHint, setMediaHint] = useState('');
+  // Whether the transcript is pinned to the newest entry. The transcript stays
+  // attached to the bottom while an answer arrives; reading an older question
+  // releases it and shows a "jump to latest" pill so it does not yank itself
+  // away mid-read.
+  const [logPinned, setLogPinned] = useState(true);
   // Set once the voice and track config has loaded, so a preset is not
   // consumed before the view knows whether speech-to-text is available.
   const [ready, setReady] = useState(false);
@@ -177,11 +182,17 @@ export default function InterviewView({ preset, onPresetConsumed }) {
     // scrolling back to re-read an earlier answer is not undone by the next one.
     const log = logRef.current;
     const pinned = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+    setLogPinned(pinned);
     setEntries((prev) => [...prev, ...items]);
     if (!pinned) return;
     requestAnimationFrame(() => {
-      if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+      if (logRef.current) logRef.current.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
     });
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    setLogPinned(true);
+    if (logRef.current) logRef.current.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
   }, []);
 
   const setVoiceMode = useCallback((on) => {
@@ -675,12 +686,6 @@ export default function InterviewView({ preset, onPresetConsumed }) {
 
   useEffect(() => () => stopMedia(), [stopMedia]);
 
-  const toggleVad = useCallback(() => {
-    const next = !vadOn;
-    setVadOn(next);
-    writeLocal('vad-on', next ? 'on' : 'off');
-  }, [vadOn]);
-
   const runDebrief = useCallback(
     async (id) => {
       setBusy(true);
@@ -869,10 +874,10 @@ export default function InterviewView({ preset, onPresetConsumed }) {
       )}
 
       {phase === 'session' || phase === 'analyzing' ? (
-        <div className="space-y-5">
-          {/* The film puts the stage on the left and the count on the right, both
-              in mono, with nothing between them and the question. */}
-          <div>
+        <div className="flex h-dvh min-h-[480px] flex-col">
+          {/* A chat-style interview: the transcript is the page and the reader
+              fills it, the composer stays pinned at the bottom. */}
+          <div className="shrink-0 border-b border-line px-6 pb-4 pt-5">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <span className="kicker">
                 {progress?.stage ? progress.stage.name.replace(/_/g, ' ') : 'Getting ready'}
@@ -902,103 +907,87 @@ export default function InterviewView({ preset, onPresetConsumed }) {
             </p>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
-            <div className="space-y-3">
-              <div className="inset min-h-[120px] px-8 py-7">
-                <div ref={logRef} className="max-h-[46vh] space-y-5 overflow-y-auto pr-1">
-                  {entries.map((e, i) => <Entry key={i} item={e} onSpeak={speak} />)}
-                  {!entries.length ? <p className="text-[19px] text-mute">Session starting…</p> : null}
-                </div>
-              </div>
-
-              {phase === 'analyzing' ? (
-                <div className="inset px-8 py-10 text-center">
-                  <Play className="animate-pulse-soft mx-auto h-6 w-6 text-mute" />
-                  <p className="mx-auto mt-3 max-w-[520px] text-[19px] text-mute">Interview ended — we are analyzing your interview to give you insights. This may take a few minutes.</p>
-                </div>
-              ) : (
-                <div className="inset px-7 py-6">
-                  {micHint && <p className="mb-3 text-[15px] text-developing">{micHint}</p>}
-                  {mediaHint && <p className="mb-3 text-[15px] text-destructive">{mediaHint}</p>}
-                  <div className="flex items-end gap-4">
-                    <Button
-                      onClick={toggleMic}
-                      disabled={busy || !stt.enabled}
-                      variant="secondary"
-                      aria-pressed={recording}
-                      className={cn(
-                        'mono h-[46px] shrink-0 rounded-full border px-[22px]',
-                        recording
-                          ? 'animate-pulse-soft border-destructive bg-destructive/10 text-destructive'
-                          : 'border-line bg-card text-mute hover:text-ink'
-                      )}
-                      title={stt.enabled ? 'Speak your answer instead of typing it' : 'Voice input is off — add a Cohere key in Settings'}
-                    >
-                      <Mic className="h-4 w-4" /> {recording ? 'Stop' : 'Voice'}
-                    </Button>
-                    <Textarea
-                      value={answer}
-                      onChange={(e) => setAnswer(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          send();
-                        }
-                      }}
-                      className="min-h-[120px] flex-1 border-0 bg-transparent px-0 py-0 text-[21px] leading-relaxed focus-visible:border-0"
-                      rows={2}
-                      placeholder={
-                        voiceMode ? 'Your words land here — review, then press Send' : 'Type your answer here… Enter to send'
-                      }
-                      disabled={busy}
-                    />
-                    <Button
-                      onClick={send}
-                      disabled={busy || !answer.trim()}
-                      aria-label="Send answer"
-                      className="h-12 w-12 shrink-0 rounded-full p-0"
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {voiceMode ? (
-                    <p className="mt-4 text-[15px] text-mute">
-                      Tap the microphone, speak, then tap Stop. Your transcript appears above — review, edit, then press Send.
-                    </p>
-                  ) : null}
-                </div>
-              )}
+          <div className="relative min-h-0 flex-1 px-6 py-6">
+            <div
+              ref={logRef}
+              onScroll={() => {
+                const el = logRef.current;
+                if (!el) return;
+                setLogPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+              }}
+              className="scroll-smooth h-full space-y-5 overflow-y-auto pr-1 pb-8"
+            >
+              {entries.map((e, i) => <Entry key={i} item={e} onSpeak={speak} />)}
+              {!entries.length ? <p className="text-[19px] text-mute">Session starting…</p> : null}
             </div>
+            {!logPinned && entries.length ? (
+              <button
+                type="button"
+                onClick={jumpToLatest}
+                className="absolute right-8 top-4 z-10 rounded-full border border-line bg-card px-4 py-1.5 text-[13px] text-mute shadow transition-colors hover:border-ink hover:text-ink"
+              >
+                Jump to latest ↓
+              </button>
+            ) : null}
+          </div>
 
-            <div className="space-y-3">
-              {voiceMode && stt.enabled ? (
-                <div className="inset px-6 py-5">
-                  <div className="flex items-center justify-between">
-                    <span className="mono text-[16px] text-mute">
-                      {speaking ? 'Listening' : vadOn ? 'Waiting' : 'Manual'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={toggleVad}
-                      className="mono rounded-full border border-line px-4 py-2 text-[14px] text-mute transition-colors hover:border-ink hover:text-ink"
-                      title={vadOn ? 'Stop transcribing when you pause speaking' : 'Transcribe only when you tap Stop'}
-                    >
-                      {vadOn ? 'Auto-stop' : 'Manual'}
-                    </button>
-                  </div>
-                  <div className="mt-4 h-4 w-full overflow-hidden rounded-full bg-line">
-                    <div
-                      className={cn('h-full rounded-full transition-all', speaking ? 'bg-good' : 'bg-ink/25')}
-                      style={{ width: `${Math.max(3, Math.round(micLevel * 100))}%` }}
-                    />
-                  </div>
-                  <p className="mono mt-3 text-[14px] text-mute">
-                    {speaking ? 'Listening to your answer…' : vadOn ? 'Pause speaking to finish transcribing' : 'Tap Stop to finish transcribing'}
-                  </p>
-                </div>
+          {phase === 'analyzing' ? (
+            <div className="shrink-0 border-t border-line px-6 py-8 text-center">
+              <Play className="animate-pulse-soft mx-auto h-6 w-6 text-mute" />
+              <p className="mx-auto mt-3 max-w-[520px] text-[19px] text-mute">Interview ended — we are analyzing your interview to give you insights. This may take a few minutes.</p>
+            </div>
+          ) : (
+            <div className="shrink-0 border-t border-line px-6 py-5">
+              {micHint && <p className="mb-3 text-[15px] text-developing">{micHint}</p>}
+              {mediaHint && <p className="mb-3 text-[15px] text-destructive">{mediaHint}</p>}
+              <div className="flex items-end gap-4">
+                <Button
+                  onClick={toggleMic}
+                  disabled={busy || !stt.enabled}
+                  variant="secondary"
+                  aria-pressed={recording}
+                  className={cn(
+                    'mono h-[46px] shrink-0 rounded-full border px-[22px]',
+                    recording
+                      ? 'animate-pulse-soft border-destructive bg-destructive/10 text-destructive'
+                      : 'border-line bg-card text-mute hover:text-ink'
+                  )}
+                  title={stt.enabled ? 'Speak your answer instead of typing it' : 'Voice input is off — add a Cohere key in Settings'}
+                >
+                  <Mic className="h-4 w-4" /> {recording ? 'Stop' : 'Voice'}
+                </Button>
+                <Textarea
+                  value={answer}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                  className="min-h-[120px] flex-1 border-0 bg-transparent px-0 py-0 text-[21px] leading-relaxed focus-visible:border-0"
+                  rows={2}
+                  placeholder={
+                    voiceMode ? 'Your words land here — review, then press Send' : 'Type your answer here… Enter to send'
+                  }
+                  disabled={busy}
+                />
+                <Button
+                  onClick={send}
+                  disabled={busy || !answer.trim()}
+                  aria-label="Send answer"
+                  className="h-12 w-12 shrink-0 rounded-full p-0"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+              {voiceMode ? (
+                <p className="mt-4 text-[15px] text-mute">
+                  Tap the microphone, speak, then tap Stop. Your transcript appears above — review, edit, then press Send.
+                </p>
               ) : null}
             </div>
-          </div>
+          )}
         </div>
       ) : null}
 
@@ -1015,7 +1004,7 @@ function Entry({ item, onSpeak }) {
   if (item.kind === 'me') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-[14px] bg-ink px-6 py-4 text-[19px] leading-relaxed text-paper dark:bg-ink dark:text-ground">{item.text}</div>
+        <div className="max-w-[80%] rounded-[14px] bg-ink px-6 py-4 text-[17px] leading-relaxed text-paper dark:bg-ink dark:text-ground">{item.text}</div>
       </div>
     );
   }
@@ -1026,7 +1015,7 @@ function Entry({ item, onSpeak }) {
           {item.tag ? <div className="kicker mb-2">{item.tag}</div> : null}
           <div
             className={cn(
-              'display text-[26px] leading-snug',
+              'display text-[20px] leading-snug',
               item.kind === 'aiFu' && 'text-mute'
             )}
           >

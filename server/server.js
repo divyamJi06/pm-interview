@@ -14,6 +14,7 @@ const { createTranscriber } = require('./lib/transcribe');
 const { createSpeaker } = require('./lib/speech');
 const { createTraceStore } = require('./lib/traceStore');
 const { createSessionFileStore } = require('./lib/sessionFileStore');
+const { createSessionKeyStore } = require('./lib/sessionKeyFileStore');
 const { createCandidateFileStore } = require('./lib/candidateFileStore');
 const { isUserError } = require('./lib/userError');
 const { createUserVerifier, bearerFrom, ownsSession } = require('./lib/auth');
@@ -54,11 +55,31 @@ const MAX_AUDIO_BYTES = 32 * 1024 * 1024;
 const MAX_RESUME_CHARS = 8000;
 
 // Bring-your-own-key. The candidate's Cohere key arrives with the request that
-// needs it and is held in memory against the session id. It is never written to
-// the session, so it cannot reach the session files, and never echoed back to a
-// client. A server restart drops it and the session falls back to COHERE_API_KEY
-// from .env, which is the right trade: losing a key beats leaving one on disk.
+// needs it and is held against the session id, and mirrored to a sidecar file
+// (`.keys.json` next to the sessions) so a restart does not orphan a key
+// mid-round. It is never written into the session records themselves and never
+// echoed back to a client.
 const sessionKeys = new Map();
+
+// Set up in main() from the sidecar file; stays null in tests, where nothing is
+// persisted.
+let sessionKeysStore = null;
+
+function persistSessionKeys() {
+  if (!sessionKeysStore) return;
+  sessionKeysStore.save(Object.fromEntries(sessionKeys));
+}
+
+function rememberSessionKeys(sessionId, { llm, stt }) {
+  const entry = { llm: cleanKey(llm), stt: cleanKey(stt) };
+  if (!entry.llm && !entry.stt) {
+    sessionKeys.delete(sessionId);
+  } else {
+    sessionKeys.set(sessionId, entry);
+  }
+  persistSessionKeys();
+  return entry;
+}
 
   // Only Cohere is offered in the UI, so only Cohere is accepted here. An
   // unexpected provider is rejected rather than silently forwarded.
@@ -192,20 +213,30 @@ function createServer({
     return liveCallModel;
   }
 
-  // A model bound to the key the candidate supplied for this session. Falls back
-  // to the server's own key when they did not supply one, so a shared deployment
-  // still works for anyone who has not set a key yet.
+  // A model bound to the key the candidate supplied for this session. The
+  // server deliberately has no fallback key of its own: whoever runs an
+  // interview pays for it, so running one without a key is an error, not a bill
+  // to the deployment owner.
   function modelForSession(sessionId) {
     const { llm } = sessionKeysFor(sessionId);
-    if (!llm) return { model: getCallModel(), error: callModelError };
-    try {
-      return {
-        model: callModelFactory({ provider: BYOK_PROVIDER, apiKey: llm, maxTokens: 4096, temperature: 0 }),
-        error: null,
-      };
-    } catch (err) {
-      return { model: null, error: err };
+    if (llm) {
+      try {
+        return {
+          model: callModelFactory({ provider: BYOK_PROVIDER, apiKey: llm, maxTokens: 4096, temperature: 0 }),
+          error: null,
+        };
+      } catch (err) {
+        return { model: null, error: err };
+      }
     }
+    // No candidate key. A deployment that injected a model (a test harness) may
+    // serve its own; a live server must not, or the chat quietly bills the
+    // owner. Ask for the key instead.
+    if (callModel) return { model: getCallModel(), error: callModelError };
+    return {
+      model: null,
+      error: new Error('No AI key on this session. Add your Cohere key in Settings → AI services, then start a new interview.'),
+    };
   }
 
   // Builds a transcriber for one request. The candidate's speech key is held
@@ -308,9 +339,15 @@ function createServer({
       } catch (err) {
         modelError = err;
       }
-    } else {
+    } else if (callModel) {
+      // Only a deployment that injected a model (tests do) may serve one to a
+      // candidate who brought no key. A live server never falls back to its own
+      // key, so a missing key is an error instead of a bill to the owner.
       model = getCallModel();
       modelError = callModelError;
+    } else {
+      model = null;
+      modelError = new Error('No AI key in your profile yet. Add your Cohere key in Settings → AI services, then start the interview again.');
     }
     if (!model) {
       json(res, 500, { ok: false, error: modelError ? modelError.message : 'No AI provider configured.' });
@@ -385,7 +422,19 @@ function createServer({
     if (!ownsSession(session, auth)) {
       return json(res, 403, { ok: false, error: 'That interview belongs to another candidate.' });
     }
-    const { model, error: modelError } = modelForSession(session.id);
+    // A session started before the candidate had a key can still adopt one they
+    // now hold in Settings: the client resends it, and it binds here only when
+    // nothing is bound yet.
+    let { model, error: modelError } = modelForSession(session.id);
+    if (!model && cleanKey(body.apiKey)) {
+      rememberSessionKeys(session.id, { llm: cleanKey(body.apiKey), stt: '' });
+      try {
+        model = callModelFactory({ provider: BYOK_PROVIDER, apiKey: cleanKey(body.apiKey) });
+        modelError = null;
+      } catch (err) {
+        modelError = err;
+      }
+    }
     if (!model) {
       return json(res, 500, { ok: false, error: modelError ? modelError.message : 'No AI provider configured.' });
     }
@@ -647,9 +696,13 @@ function createServer({
       }
       if (!session.finalPayload && session.awaiting === 'final_report') {
         // With the session's key, so a candidate who brought their own does not
-        // have the closing report quietly billed to the server's account.
-        const { model } = modelForSession(session.id);
-        if (model) scheduleFinalReport(session, model);
+        // have the closing report quietly billed to the server's account. No
+        // key at all is an error, not a silently stuck report.
+        const { model, error: modelError } = modelForSession(session.id);
+        if (!model) {
+          return json(res, 500, { ok: false, error: modelError ? modelError.message : 'No AI provider configured.' });
+        }
+        scheduleFinalReport(session, model);
       }
       if (!session.finalPayload) {
         return json(res, 200, { ok: true, state: 'analyzing' });
@@ -881,6 +934,14 @@ if (require.main === module) {
   try {
     store.setPersist(createSessionFileStore({ rootDir: process.env.SESSION_DIR || DEFAULT_SESSION_DIR }));
     const loaded = store.loadPersisted();
+    try {
+      sessionKeysStore = createSessionKeyStore({ rootDir: process.env.SESSION_DIR || DEFAULT_SESSION_DIR });
+      for (const [id, entry] of Object.entries(sessionKeysStore.load())) {
+        sessionKeys.set(id, entry);
+      }
+    } catch (err) {
+      console.warn(`Session key persistence disabled: ${err.message}. Keys survive only until restart.`);
+    }
     console.log(
       `Sessions persist to: ${process.env.SESSION_DIR || DEFAULT_SESSION_DIR} (${loaded} resumed)`
     );
