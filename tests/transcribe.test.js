@@ -122,14 +122,18 @@ test('deepgram request targets the listen endpoint with Token auth and mime', as
   assert.deepEqual(sent.opts.body, Buffer.from('bytes'));
 });
 
-test('transcriber reports enabled from apiKey and per-provider env key', () => {
+test('transcriber reports enabled from apiKey only — never the server env', () => {
   assert.equal(createTranscriber({ provider: 'deepgram', apiKey: '' }).enabled, false);
   assert.equal(createTranscriber({ provider: 'cohere', apiKey: 'x' }).enabled, true);
 
   const original = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = 'env-oa-key';
   try {
-    assert.equal(createTranscriber({ provider: 'openai' }).enabled, true);
+    assert.equal(
+      createTranscriber({ provider: 'openai' }).enabled,
+      false,
+      "a server env key must never enable STT on someone else's machine"
+    );
   } finally {
     if (original !== undefined) process.env.OPENAI_API_KEY = original;
     else delete process.env.OPENAI_API_KEY;
@@ -138,7 +142,7 @@ test('transcriber reports enabled from apiKey and per-provider env key', () => {
 
 test('throws a friendly error when the provider key is missing', async () => {
   const t = createTranscriber({ provider: 'deepgram', apiKey: '' });
-  await assert.rejects(t.transcribe({ audio: Buffer.from('x') }), /DEEPGRAM_API_KEY/);
+  await assert.rejects(t.transcribe({ audio: Buffer.from('x') }), /Add your key in Settings/);
 });
 
 test('rejects empty audio before calling the API', async () => {
@@ -152,7 +156,7 @@ test('surfaces upstream auth and generic failures per provider', async () => {
     apiKey: 'k',
     fetchImpl: fakeFetch(new Response(JSON.stringify({}), { status: 401 })),
   });
-  await assert.rejects(auth.transcribe({ audio: Buffer.from('x') }), /Check DEEPGRAM_API_KEY/);
+  await assert.rejects(auth.transcribe({ audio: Buffer.from('x') }), /Check the key you added in Settings/);
 
   const boom = createTranscriber({
     provider: 'cohere',

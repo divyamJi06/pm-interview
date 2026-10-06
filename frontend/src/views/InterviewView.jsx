@@ -108,18 +108,20 @@ export default function InterviewView({ preset, onPresetConsumed }) {
   const answerWindowRef = useRef(false);
 
   // Speech-to-text is Cohere for anyone who brought their own key, which the
-  // server cannot know until it sees one. Saying so up front lets it report the
-  // right provider, and the recorder convert Chrome's webm into a format Cohere
-  // accepts instead of failing on the first answer.
+  // server cannot know until it sees one. The probe reports the right provider
+  // for that key in the body, and the recorder converts Chrome's webm into a
+  // format Cohere accepts instead of failing on the first answer.
   const sttQuery = useCallback(() => {
     const key = keys.stt || keys.llm;
-    const session = sessionIdRef.current ? '&sessionId=' + encodeURIComponent(sessionIdRef.current) : '';
-    return key ? '?provider=cohere' + session : session ? '?sessionId=' + encodeURIComponent(sessionIdRef.current) : '';
+    return {
+      ...(key ? { provider: 'cohere', apiKey: key } : {}),
+      ...(sessionIdRef.current ? { sessionId: sessionIdRef.current } : {}),
+    };
   }, [keys.stt, keys.llm]);
 
   const refreshStt = useCallback(async () => {
     try {
-      const d = await api('GET', '/api/transcribe/config' + sttQuery());
+      const d = await api('POST', '/api/transcribe/config', sttQuery());
       setStt({ enabled: !!d.enabled, provider: d.provider || '' });
     } catch (_) {}
   }, [sttQuery]);
@@ -214,14 +216,16 @@ export default function InterviewView({ preset, onPresetConsumed }) {
   }, [speakerRef]);
 
   useEffect(() => {
-    if (voiceMode && !stt.enabled) {
-      setMicHint(
-        keys.stt || keys.llm
-          ? 'Voice mode is on but your Cohere key did not enable speech to text. Check it in Settings, or switch to Text mode.'
-          : 'Voice mode is on but there is no speech-to-text key. Add a Cohere key in Settings, or switch to Text mode.'
-      );
+    if (!voiceMode || stt.enabled) {
+      if (micHint) setMicHint('');
+      return;
     }
-  }, [voiceMode, stt.enabled, keys.llm, keys.stt]);
+    setMicHint(
+      keys.stt || keys.llm
+        ? 'Voice mode is on but your Cohere key did not enable speech to text. Check it in Settings, or switch to Text mode.'
+        : 'Voice mode is on but there is no speech-to-text key. Add a Cohere key in Settings, or switch to Text mode.'
+    );
+  }, [voiceMode, stt.enabled, micHint, keys.llm, keys.stt]);
 
   // A key added in Settings after this view mounted must re-ask the server: the
   // first config probe ran before the key existed, and `stt` is stale.

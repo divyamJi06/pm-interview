@@ -90,7 +90,7 @@ function createSpeaker({
   if (!cfg) {
     throw new Error(`Unknown TTS_PROVIDER '${provider}'. Use deepgram | openai.`);
   }
-  const resolvedKey = apiKey !== undefined ? apiKey : process.env[cfg.envKey];
+  const resolvedKey = apiKey !== undefined ? apiKey : null;
   const resolvedModel = model !== undefined ? model : process.env[cfg.envModel] || cfg.defaultModel;
   const resolvedVoice = voice || cfg.defaultVoice;
 
@@ -105,7 +105,7 @@ function createSpeaker({
       if (!resolvedKey) {
         throw Object.assign(
           new Error(
-            `No ${cfg.envKey} configured. Set TTS_PROVIDER=${provider} and add ${cfg.envKey} to .env to enable server-side voice. Until then the browser's built-in text-to-speech is used.`
+            `No text-to-speech key on this request. Add your key in Settings → AI services to enable server-side voice; until then the browser's built-in text-to-speech is used.`
           ),
           { statusCode: 503 }
         );

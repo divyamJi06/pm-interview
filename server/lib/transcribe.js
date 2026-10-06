@@ -183,7 +183,7 @@ function createTranscriber({
   if (!cfg) {
     throw new Error(`Unknown STT_PROVIDER '${provider}'. Use deepgram | openai | cohere.`);
   }
-  const resolvedKey = apiKey !== undefined ? apiKey : process.env[cfg.envKey];
+  const resolvedKey = apiKey !== undefined ? apiKey : null;
   const resolvedModel = model !== undefined ? model : process.env[cfg.envModel] || cfg.defaultModel;
 
   const transcriber = {
@@ -196,7 +196,7 @@ function createTranscriber({
       if (!resolvedKey) {
         throw Object.assign(
           new Error(
-            `No ${cfg.envKey} configured. Set STT_PROVIDER=${provider} and add ${cfg.envKey} to .env to enable voice-to-text answers.`
+            `No speech-to-text key on this request. Add your key in Settings → AI services, then start a fresh interview.`
           ),
           { statusCode: 503 }
         );
@@ -228,7 +228,7 @@ function createTranscriber({
         throw Object.assign(
           new Error(
             auth
-              ? `${cfg.displayName} STT rejected the API key (${res.status}). Check ${cfg.envKey}.`
+              ? `${cfg.displayName} STT rejected the API key (${res.status}). Check the key you added in Settings → AI services.`
               : `${cfg.displayName} STT responded ${res.status}: ${detail.slice(0, 300)}`
           ),
           { statusCode: auth ? 503 : 502 }

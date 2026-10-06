@@ -131,7 +131,7 @@ test('POST /api/tts returns 503 when no provider key is configured', async (t) =
   const res = await ttsPost(base, { text: 'Hello' });
   assert.equal(res.status, 503);
   assert.equal(res.body.ok, false);
-  assert.match(res.body.error, /OPENAI_API_KEY/);
+  assert.match(res.body.error, /browser speaks/);
 });
 
 test('POST /api/tts returns 503 unless TTS_PROVIDER opts in, even with a key', async (t) => {

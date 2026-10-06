@@ -46,6 +46,7 @@ const STATIC_TYPES = {
   ico: 'image/x-icon',
   woff: 'font/woff',
   woff2: 'font/woff2',
+  ttf: 'font/ttf',
   txt: 'text/plain; charset=utf-8',
 };
 const INDEX_TYPES = { html: 'text/html; charset=utf-8' };
@@ -653,6 +654,27 @@ function createServer({
       return;
     }
 
+    // POST variant lets the key ride in the body instead of the URL, so a
+    // candidate's key is never logged in a query string. Without it the server
+    // reports voice disabled until a session bound to that key exists.
+    if (route === 'POST /api/transcribe/config') {
+      try {
+        const body = await readJsonBody(req);
+        const t = liveTranscriber || transcriberForRequest(String(body.sessionId || ''), body);
+        json(res, 200, {
+          ok: true,
+          enabled: t.enabled,
+          provider: t.provider,
+          model: t.model,
+          language: t.language,
+          byok: Boolean(sessionKeysFor(String(body.sessionId || '')).stt),
+        });
+      } catch (err) {
+        json(res, 200, { ok: false, enabled: false, error: err.message });
+      }
+      return;
+    }
+
     if (route === 'GET /api/traces') {
       json(res, 200, { ok: true, traces: traceAnalysis.listTraces(traceDir) });
       return;
@@ -825,7 +847,7 @@ function createServer({
               error:
                 t.provider === BYOK_PROVIDER
                   ? 'Voice input needs a Cohere API key. Add one in Settings before recording an answer.'
-                  : `Voice input is not configured. Set STT_PROVIDER and ${t.envKey} in .env to enable it.`,
+                  : 'Voice input is off in this deployment. No server key is used: add your speech key in Settings → AI services, then start a fresh interview.',
             });
           }
           const audio = typeof body.audio === 'string' ? Buffer.from(body.audio, 'base64') : null;
@@ -876,20 +898,29 @@ function createServer({
     if (route === 'POST /api/tts') {
       readJsonBody(req)
         .then((body) => {
+          const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
           let s;
           try {
-            s = getSpeaker();
+            // Server voice only for an operator who opted in via TTS_PROVIDER
+            // and a request that carries a key. The server has no key of its
+            // own: a candidate brings theirs, or the browser speaks instead.
+            s =
+              liveSpeaker ||
+              createSpeaker({
+                provider: process.env.TTS_PROVIDER,
+                apiKey: cleanKey(body.apiKey) || sessionKeysFor(sessionId).tts || undefined,
+              });
           } catch (err) {
             return json(res, 503, { ok: false, error: err.message });
           }
           if (!s.enabled || !process.env.TTS_PROVIDER) {
             return json(res, 503, {
               ok: false,
-              error: `Server-side voice is off. Set TTS_PROVIDER and ${s.envKey} in .env to enable it; until then the browser speaks.`,
+              error:
+                'Server-side voice is off in this deployment. An operator who wants it sets TTS_PROVIDER in the server env; you can still add your speech key in Settings → AI services. Until then the browser speaks.',
             });
           }
           const text = typeof body.text === 'string' ? body.text.trim() : '';
-          const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
           const recordTrace = (record) => {
             if (traceStore && sessionId) {
               traceStore.recordCall({ sessionId, record: { label: 'tts', provider: s.provider, model: s.model, ...record } });

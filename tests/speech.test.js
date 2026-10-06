@@ -106,7 +106,7 @@ test('speaker reports enabled from the provider api key', () => {
 
 test('throws a friendly error when the provider key is missing', async () => {
   const s = createSpeaker({ provider: 'deepgram', apiKey: '' });
-  await assert.rejects(s.speak({ text: 'hi' }), /DEEPGRAM_API_KEY/);
+  await assert.rejects(s.speak({ text: 'hi' }), /Add your key in Settings/);
 });
 
 test('rejects empty and whitespace-only text before calling the provider', async () => {

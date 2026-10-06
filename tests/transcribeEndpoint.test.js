@@ -69,6 +69,34 @@ test('config reflects an enabled cohere transcriber', async (t) => {
   });
 });
 
+test('POST config probe is off without a key and on with one in the body', async (t) => {
+  const { server, base } = await boot();
+  t.after(() => server.close());
+
+  const none = await (
+    await fetch(base + '/api/transcribe/config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'cohere' }),
+    })
+  ).json();
+  assert.deepEqual({ ok: none.ok, enabled: none.enabled }, { ok: true, enabled: false });
+
+  const withKey = await (
+    await fetch(base + '/api/transcribe/config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'cohere', apiKey: 'k' }),
+    })
+  ).json();
+  assert.deepEqual({ ok: withKey.ok, enabled: withKey.enabled, provider: withKey.provider }, {
+    ok: true,
+    enabled: true,
+    provider: 'cohere',
+  });
+  assert.equal(withKey.byok, false, 'no live session is bound to this key yet');
+});
+
 test('config reports an unknown STT_PROVIDER as disabled with the error', async (t) => {
   const { server, base } = await boot();
   t.after(() => server.close());
@@ -94,7 +122,7 @@ test('POST /api/transcribe returns 503 when no provider key is configured', asyn
   const res = await transcribePost(base, { sessionId: 's1', audio: toBase64('audio') });
   assert.equal(res.status, 503);
   assert.equal(res.body.ok, false);
-  assert.match(res.body.error, /DEEPGRAM_API_KEY/);
+  assert.match(res.body.error, /Voice input is off in this deployment/);
 });
 
 test('POST /api/transcribe transcribes base64 audio and returns transcript', async (t) => {
