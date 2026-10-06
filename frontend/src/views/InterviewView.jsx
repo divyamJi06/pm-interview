@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Mic, Send, Play } from 'lucide-react';
+import { Mic, Send, Play, Volume2 } from 'lucide-react';
 import { Button, Card, Input, Label, Seg, Select, Textarea, Progress, Badge } from '../components/ui';
 import { api, cn, esc, readLocal, writeLocal, VERDICT_CLASS } from '../lib/utils';
 import { Speaker, Recorder } from '../lib/speech';
@@ -69,7 +69,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
   const [candDetail, setCandDetail] = useState(null);
   // Voice activity detection, so an answer can be sent the moment the candidate
   // stops speaking instead of by hand.
-  const [vadOn, setVadOn] = useState(() => readLocal('vad-on', 'on') !== 'off');
+  const [vadOn, setVadOn] = useState(() => readLocal('vad-on', 'off') !== 'off');
   const [speaking, setSpeaking] = useState(false);
   // Separate from `speaking`, which tracks the candidate. VAD must only pause
   // while the interviewer is talking, never while the candidate answers.
@@ -208,7 +208,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
 
   const speak = useCallback(
     async (text) => {
-      if (!voiceModeRef.current || !text) return;
+      if (!text) return;
       // While the interviewer talks, the answer window is closed so the VAD
       // does not record the speaker's own voice as a candidate answer.
       setTtsPlaying(true);
@@ -309,12 +309,10 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         append(isFu ? KIND.aiFu('follow-up', '#' + q.text) : KIND.ai(stageLabel(payload.stage), '#' + q.text));
         setProgress(payload);
         setPhase('session');
-        speak(payload.question.text);
       } else if (payload.state === 'clarify_reply') {
         setProgress(payload);
         append(KIND.aiFu('interviewer · clarification', payload.clarifyAnswer));
         append(KIND.banner(payload.wrapUp ? `The interviewer would like your answer now — go ahead and answer <b>${esc(payload.question.text)}</b>` : `Clarifying question noted — now answer <b>${esc(payload.question.text)}</b>`));
-        speak(payload.clarifyAnswer);
         setPhase('session');
       } else if (payload.state === 'transition') {
         const t = payload.transition;
@@ -324,7 +322,6 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         setTimeout(() => {
           setProgress(payload);
           append(KIND.ai(stageLabel(payload.stage), '#' + payload.question.text));
-          speak(payload.question.text);
         }, 350);
       } else if (payload.state === 'analyzing') {
         setProgress(payload);
@@ -335,7 +332,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         presentFinalReport(payload);
       }
     },
-    [append, speak, pollAnalysis, presentFinalReport, persistRound]
+    [append, pollAnalysis, presentFinalReport, persistRound]
   );
 
   const askQuestion = useCallback(
@@ -345,9 +342,8 @@ export default function InterviewView({ preset, onPresetConsumed }) {
       const q = payload.question;
       const isFu = payload.state === 'follow_up' || (q && q.isFollowUp);
       append(isFu ? KIND.aiFu('follow-up', '#' + q.text) : KIND.ai(stageLabel(payload.stage), '#' + q.text));
-      speak(q.text);
     },
-    [append, speak]
+    [append]
   );
 
   // The transcript, stored as rows in the database, back into the on-screen
@@ -442,13 +438,6 @@ export default function InterviewView({ preset, onPresetConsumed }) {
   const onTranscribed = useCallback(
     (text, meta) => {
       const speechMs = (meta && meta.speechMs) || 0;
-      if (!voiceModeRef.current) {
-        setAnswer((cur) => {
-          const base = cur.replace(/\s+$/g, '').trimEnd();
-          return base ? base + '\n' + text : text;
-        });
-        return;
-      }
       const verdict = isSubstantiveAnswer(text, { speechMs });
       if (!verdict.ok) {
         const message =
@@ -461,9 +450,13 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         setTimeout(() => setMicHint(''), 2600);
         return;
       }
-      submitAnswer(text);
+      // The transcript lands in the answer box, never submitted on its own.
+      setAnswer((cur) => {
+        const base = cur.replace(/\s+$/g, '').trimEnd();
+        return base ? base + '\n' + text : text;
+      });
     },
-    [submitAnswer]
+    []
   );
 
   // The recorder is created once and outlives this callback, so the transcript
@@ -842,7 +835,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
               ]}
             />
             <p className="text-xs text-muted-foreground">
-              {voiceMode ? 'The interviewer speaks questions aloud; you answer with the microphone.' : 'Type your answers. Interviewer text is shown on screen only.'}
+              {voiceMode ? 'You answer with the microphone. Tap Listen on a question to hear it; your words land in the box and you send them yourself.' : 'Type your answers. Tap Listen on a question to hear it aloud.'}
             </p>
           </div>
 
@@ -913,7 +906,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
             <div className="space-y-3">
               <div className="inset min-h-[120px] px-8 py-7">
                 <div ref={logRef} className="max-h-[46vh] space-y-5 overflow-y-auto pr-1">
-                  {entries.map((e, i) => <Entry key={i} item={e} />)}
+                  {entries.map((e, i) => <Entry key={i} item={e} onSpeak={speak} />)}
                   {!entries.length ? <p className="text-[19px] text-mute">Session starting…</p> : null}
                 </div>
               </div>
@@ -943,38 +936,34 @@ export default function InterviewView({ preset, onPresetConsumed }) {
                     >
                       <Mic className="h-4 w-4" /> {recording ? 'Stop' : 'Voice'}
                     </Button>
-                    {voiceMode ? null : (
-                      <>
-                        <Textarea
-                          value={answer}
-                          onChange={(e) => setAnswer(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              send();
-                            }
-                          }}
-                          className="min-h-[120px] flex-1 border-0 bg-transparent px-0 py-0 text-[21px] leading-relaxed focus-visible:border-0"
-                          rows={2}
-                          placeholder="Type your answer here… Enter to send"
-                          disabled={busy}
-                        />
-                        <Button
-                          onClick={send}
-                          disabled={busy || !answer.trim()}
-                          aria-label="Send answer"
-                          className="h-12 w-12 shrink-0 rounded-full p-0"
-                        >
-                          <Send className="h-4 w-4" />
-                        </Button>
-                      </>
-                    )}
+                    <Textarea
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          send();
+                        }
+                      }}
+                      className="min-h-[120px] flex-1 border-0 bg-transparent px-0 py-0 text-[21px] leading-relaxed focus-visible:border-0"
+                      rows={2}
+                      placeholder={
+                        voiceMode ? 'Your words land here — review, then press Send' : 'Type your answer here… Enter to send'
+                      }
+                      disabled={busy}
+                    />
+                    <Button
+                      onClick={send}
+                      disabled={busy || !answer.trim()}
+                      aria-label="Send answer"
+                      className="h-12 w-12 shrink-0 rounded-full p-0"
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
                   </div>
                   {voiceMode ? (
                     <p className="mt-4 text-[15px] text-mute">
-                      {vadOn && stt.enabled
-                        ? 'Listening — I will send your answer after you stop speaking. Tap the mic to send it yourself.'
-                        : 'Tap the microphone to start, tap again to send.'}
+                      Tap the microphone, speak, then tap Stop. Your transcript appears above — review, edit, then press Send.
                     </p>
                   ) : null}
                 </div>
@@ -986,15 +975,15 @@ export default function InterviewView({ preset, onPresetConsumed }) {
                 <div className="inset px-6 py-5">
                   <div className="flex items-center justify-between">
                     <span className="mono text-[16px] text-mute">
-                      {speaking ? 'Listening' : vadOn ? 'Waiting' : 'Paused'}
+                      {speaking ? 'Listening' : vadOn ? 'Waiting' : 'Manual'}
                     </span>
                     <button
                       type="button"
                       onClick={toggleVad}
                       className="mono rounded-full border border-line px-4 py-2 text-[14px] text-mute transition-colors hover:border-ink hover:text-ink"
-                      title={vadOn ? 'Turn auto-submit off' : 'Turn auto-submit on'}
+                      title={vadOn ? 'Stop transcribing when you pause speaking' : 'Transcribe only when you tap Stop'}
                     >
-                      {vadOn ? 'Auto' : 'Manual'}
+                      {vadOn ? 'Auto-stop' : 'Manual'}
                     </button>
                   </div>
                   <div className="mt-4 h-4 w-full overflow-hidden rounded-full bg-line">
@@ -1004,7 +993,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
                     />
                   </div>
                   <p className="mono mt-3 text-[14px] text-mute">
-                    {speaking ? 'Listening to your answer…' : vadOn ? 'Waiting for you to speak' : 'Auto-submit is off'}
+                    {speaking ? 'Listening to your answer…' : vadOn ? 'Pause speaking to finish transcribing' : 'Tap Stop to finish transcribing'}
                   </p>
                 </div>
               ) : null}
@@ -1022,7 +1011,7 @@ function verdictHtml(v) {
   return `<span class="font-semibold ${VERDICT_CLASS[v] || 'text-muted-foreground'}">${esc(v || '—')}</span>`;
 }
 
-function Entry({ item }) {
+function Entry({ item, onSpeak }) {
   if (item.kind === 'me') {
     return (
       <div className="flex justify-end">
@@ -1043,6 +1032,16 @@ function Entry({ item }) {
           >
             {item.text}
           </div>
+          {onSpeak ? (
+            <button
+              type="button"
+              onClick={() => onSpeak(item.text)}
+              className="mono mt-2 inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-[13px] text-mute transition-colors hover:border-ink hover:text-ink"
+              aria-label="Read this aloud"
+            >
+              <Volume2 className="h-3.5 w-3.5" /> Listen
+            </button>
+          ) : null}
         </div>
       </div>
     );

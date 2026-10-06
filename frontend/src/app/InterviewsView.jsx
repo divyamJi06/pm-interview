@@ -6,6 +6,7 @@ import { MonoBar } from '../components/charts';
 import { listInterviews, summarise, stageLabel, STAGES } from '../lib/interviews';
 import { navigate } from '../lib/route';
 import { cn, relDate } from '../lib/utils';
+import { usePrep } from './prepContext';
 
 // The full practice history. Filterable by round and searchable by role, because
 // a candidate with thirty rounds does not scroll to find the one they want.
@@ -23,6 +24,7 @@ export default function InterviewsView() {
   const [error, setError] = useState('');
   const [stage, setStage] = useState('all');
   const [query, setQuery] = useState('');
+  const { setPreset } = usePrep();
 
   const load = useCallback(async () => {
     setState('loading');
@@ -142,7 +144,20 @@ export default function InterviewsView() {
                   return (
                     <button
                       key={row.id}
-                      onClick={() => navigate('/app/interviews/' + row.id)}
+                      onClick={() => {
+                        // A live round resumes where it stopped, straight into the
+                        // interview. Only a finished round opens its report.
+                        if (row.status === 'live') {
+                          setPreset({
+                            sessionId: row.session_id,
+                            voiceMode: row.voice_mode ? 'on' : 'off',
+                            autoStart: true,
+                          });
+                          navigate('/app/practice/interview');
+                          return;
+                        }
+                        navigate('/app/interviews/' + row.id);
+                      }}
                       className="flex min-h-[76px] w-full flex-wrap items-center justify-between gap-4 border-t border-line px-7 text-left transition-colors hover:bg-deep/50"
                     >
                       <div className="min-w-0">
