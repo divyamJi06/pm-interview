@@ -50,7 +50,9 @@ export const STAGES = [
 export const STAGE_LABEL = STAGES.reduce((acc, s) => ({ ...acc, [s.id]: s.label }), {});
 
 export function stageLabel(stage) {
-  if (!stage) return 'Full mock interview';
+  // Empty means no stage, not a "full mock": the multi-stage round no longer
+  // exists, so callers render their own placeholder instead of a stale name.
+  if (!stage) return '';
   if (STAGE_LABEL[stage]) return STAGE_LABEL[stage];
   return String(stage).replace(/_/g, ' ');
 }
@@ -70,7 +72,7 @@ export async function listInterviews() {
 // The interview is created the moment the engine accepts /api/start, so an
 // abandoned run still shows up in the history with status "live" instead of
 // vanishing. The unique index on (user_id, session_id) makes a retry safe.
-export async function createInterviewRow({ sessionId, mode, stage, feedbackMode, voiceMode, targetRole }) {
+export async function createInterviewRow({ sessionId, stage, voiceMode, targetRole }) {
   const sb = requireSupabase();
   const { data: auth } = await sb.auth.getUser();
   const user = auth && auth.user;
@@ -81,9 +83,11 @@ export async function createInterviewRow({ sessionId, mode, stage, feedbackMode,
       {
         user_id: user.id,
         session_id: sessionId,
-        mode,
-        stage: stage || null,
-        feedback_mode: feedbackMode || 'full',
+        // Every round is a single-stage mock, so both of these are fixed rather
+        // than chosen per run.
+        mode: 'mock',
+        stage,
+        feedback_mode: 'full',
         voice_mode: Boolean(voiceMode),
         target_role: targetRole || '',
         status: 'live',
@@ -111,6 +115,126 @@ export async function finishInterviewRow(interviewId, patch) {
 // Rejoining an interview that is already in the history. The engine's session id
 // is the join key, so a resumed round writes its report to the same row instead
 // of starting a second entry.
+// The transcript as rows. The engine sends the whole transcript on every reply,
+// so this upserts the lot against (interview_id, seq): entries already stored are
+// updated, new ones appended, and re-sending the same reply changes nothing.
+// That is what makes it safe to call after every single answer without tracking
+// what has already been sent.
+const TURN_KINDS = new Set(['question', 'answer', 'clarify', 'judge', 'stage_verdict']);
+
+// The engine's transcript entry -> a row. Anything it sends that is not one of
+// the five known kinds is dropped rather than guessed at, because the seq it
+// would take has to stay aligned with what is already stored.
+export function turnRowsFromTranscript(transcript) {
+  const rows = [];
+  if (!Array.isArray(transcript)) return rows;
+  transcript.forEach((e, seq) => {
+    if (!e || !TURN_KINDS.has(e.type)) return;
+    const detail = {};
+    if (e.type === 'clarify') {
+      detail.candidate_question = e.candidateQuestion || '';
+      detail.interviewer_answer = e.interviewerAnswer || '';
+      detail.wrap_up = Boolean(e.wrapUp);
+    } else if (e.type === 'judge') {
+      detail.verdict = e.verdict || '';
+      detail.summary = e.summary || '';
+      detail.dimension_scores = e.dimension_scores || null;
+      detail.checklist_hits = e.checklist_hits || null;
+      detail.green_flags_hit = e.green_flags_hit || [];
+      detail.red_flags_hit = e.red_flags_hit || [];
+    } else if (e.type === 'stage_verdict') {
+      detail.verdict = e.verdict || null;
+    }
+    rows.push({
+      seq,
+      kind: e.type,
+      stage: e.stage || null,
+      is_follow_up: Boolean(e.isFollowUp),
+      text: String(e.text == null ? '' : e.text),
+      detail,
+    });
+  });
+  return rows;
+}
+
+export async function saveTranscript(interviewId, transcript) {
+  if (!supabaseConfigured || !interviewId) return 0;
+  const rows = turnRowsFromTranscript(transcript);
+  if (!rows.length) return 0;
+  const sb = requireSupabase();
+  const { data: auth } = await sb.auth.getUser();
+  const user = auth && auth.user;
+  if (!user) throw new Error('Not signed in.');
+  const { error } = await sb
+    .from('interview_turns')
+    .upsert(
+      rows.map((r) => ({ ...r, interview_id: interviewId, user_id: user.id })),
+      { onConflict: 'interview_id,seq' }
+    );
+  if (error) throw new Error(error.message);
+  return rows.length;
+}
+
+export async function listTurns(interviewId) {
+  if (!supabaseConfigured || !interviewId) return [];
+  const { data, error } = await supabase
+    .from('interview_turns')
+    .select('seq, kind, stage, is_follow_up, text, detail')
+    .eq('interview_id', interviewId)
+    .order('seq', { ascending: true });
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+// Where a live round stopped. Written alongside the transcript so "Resume this
+// round" can reopen the exact question the candidate was last asked, with the
+// transcript already on screen, without depending on the engine still holding
+// the session in memory.
+export async function saveLiveState(interviewId, state) {
+  if (!supabaseConfigured || !interviewId) return null;
+  const sb = requireSupabase();
+  const { data: auth } = await sb.auth.getUser();
+  const user = auth && auth.user;
+  if (!user) throw new Error('Not signed in.');
+  const { data, error } = await sb
+    .from('interview_live_state')
+    .upsert(
+      {
+        interview_id: interviewId,
+        user_id: user.id,
+        session_id: state.sessionId || '',
+        stage: state.stage || null,
+        stage_index: Number(state.stageIndex) || 0,
+        pending_question: state.pendingQuestion || '',
+        pending_follow_up: Boolean(state.pendingFollowUp),
+        stage_progress: state.stageProgress || {},
+        turns_written: Number(state.turnsWritten) || 0,
+      },
+      { onConflict: 'interview_id' }
+    )
+    .select()
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function getLiveState(interviewId) {
+  if (!supabaseConfigured || !interviewId) return null;
+  const { data, error } = await supabase
+    .from('interview_live_state')
+    .select('session_id, stage, stage_index, pending_question, pending_follow_up, stage_progress, turns_written')
+    .eq('interview_id', interviewId)
+    .maybeSingle();
+  if (error) return null;
+  return data || null;
+}
+
+export async function clearLiveState(interviewId) {
+  if (!supabaseConfigured || !interviewId) return;
+  const { error } = await supabase.from('interview_live_state').delete().eq('interview_id', interviewId);
+  if (error) throw new Error(error.message);
+}
+
 export async function findInterviewBySession(sessionId) {
   if (!supabaseConfigured || !sessionId) return null;
   const { data, error } = await supabase

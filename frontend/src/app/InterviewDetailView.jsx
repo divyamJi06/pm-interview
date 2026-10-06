@@ -5,7 +5,7 @@ import { PageHeader, Section, StateScreen, KeyValue, Divider } from '../componen
 import { MonoBar } from '../components/charts';
 import ReportBody from './ReportBody';
 import { supabaseConfigured } from '../lib/supabase';
-import { listInterviews, getReport, scoreFromReport, countsFromReport, stageLabel } from '../lib/interviews';
+import { listInterviews, getReport, scoreFromReport, countsFromReport, stageLabel, listTurns } from '../lib/interviews';
 import { api, readLocal, dateNice } from '../lib/utils';
 import { navigate } from '../lib/route';
 
@@ -19,6 +19,7 @@ export default function InterviewDetailView({ interviewId }) {
   const [row, setRow] = useState(null);
   const [report, setReport] = useState(null);
   const [reportState, setReportState] = useState('');
+  const [turns, setTurns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [clipUrl, setClipUrl] = useState('');
@@ -36,6 +37,9 @@ export default function InterviewDetailView({ interviewId }) {
           setReport(saved.report);
           setReportState('final_report');
         }
+        // The stored question and answer sequence. Independent of the report, so
+        // a live round still shows what has been said so far.
+        setTurns(await listTurns(found.id).catch(() => []));
       }
       setError('');
     } catch (err) {
@@ -146,7 +150,7 @@ export default function InterviewDetailView({ interviewId }) {
           {row.voice_mode ? <Mic className="h-3.5 w-3.5" /> : <PenLine className="h-3.5 w-3.5" />}
           {row.voice_mode ? 'Answered by voice' : 'Answered by keyboard'}
         </span>
-        <span>· {row.feedback_mode === 'simulation' ? 'Simulation mode' : 'Coaching after each answer'}</span>
+        <span>· Feedback released when the round ends</span>
         {row.target_role ? <span>· {row.target_role}</span> : null}
       </div>
 
@@ -171,6 +175,60 @@ export default function InterviewDetailView({ interviewId }) {
               </div>
             </>
           ) : null}
+        </Section>
+      ) : null}
+
+      {turns.length ? (
+        <Section title="Transcript">
+          <div className="space-y-3">
+            {turns.map((t) => (
+              <div
+                key={t.id}
+                className={
+                  t.kind === 'question'
+                    ? 'text-mute'
+                    : t.kind === 'answer'
+                      ? 'text-ink'
+                      : t.kind === 'judge'
+                        ? 'inset px-5 py-4'
+                        : 'inset px-5 py-4'
+                }
+              >
+                {t.kind === 'question' ? (
+                  <p className="text-[17px]">
+                    <span className="mono mr-2 text-[14px] uppercase text-mute">
+                      {t.is_follow_up ? 'Follow-up' : 'Interviewer'}
+                    </span>
+                    {t.text}
+                  </p>
+                ) : null}
+                {t.kind === 'answer' ? <p className="text-[17px]">{t.text}</p> : null}
+                {t.kind === 'clarify' ? (
+                  <p className="text-[15px]">
+                    <span className="mono mr-2 text-[14px] uppercase text-mute">Q</span>
+                    {(t.detail || {}).candidate_question || ''}
+                    <br />
+                    <span className="mono mr-2 text-[14px] uppercase text-mute">A</span>
+                    {(t.detail || {}).interviewer_answer || ''}
+                  </p>
+                ) : null}
+                {t.kind === 'judge' && row.status !== 'live' ? (
+                  <>
+                    <div className="mono mb-1 text-[14px] uppercase text-mute">
+                      Judge · {(t.detail || {}).verdict || 'scored'}
+                    </div>
+                    <p className="text-[16px]">{(t.detail || {}).summary || ''}</p>
+                  </>
+                ) : null}
+                {t.kind === 'stage_verdict' ? (
+                  <>
+                    <div className="mono mb-1 text-[14px] uppercase text-mute">Stage verdict</div>
+                    <p className="text-[16px]">{((t.detail || {}).verdict || {}).summary || ''}</p>
+                  </>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </Section>
       ) : null}
 

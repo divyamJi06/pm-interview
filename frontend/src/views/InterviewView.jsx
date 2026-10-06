@@ -10,8 +10,14 @@ import {
   finishInterviewRow,
   findInterviewBySession,
   saveReport,
+  saveTranscript,
+  saveLiveState,
+  clearLiveState,
+  getLiveState,
+  listTurns,
   scoreFromReport,
   countsFromReport,
+  turnRowsFromTranscript,
 } from '../lib/interviews';
 
 // Used when the track list cannot be fetched, so an interview can still start.
@@ -36,8 +42,6 @@ function stageLabel(stage) {
 export default function InterviewView({ preset, onPresetConsumed }) {
   // The signed-in candidate supplies the API keys and owns the history.
   const { user, profile, keys } = useAuth();
-  const [mode, setMode] = useState('mock');
-  const [feedback, setFeedback] = useState('full');
   const [trackId, setTrackId] = useState('pm');
   // The track list is this view's own state: the setup screen picks the track
   // and no other screen needs it, so it is fetched here rather than lifted.
@@ -241,6 +245,9 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         ended_at: new Date().toISOString(),
       })
         .then(() => saveReport(rowId, payload))
+        // The round is over, so the resume pointer is meaningless. Cleared last
+        // so a failure here cannot strand a finished round as "live".
+        .then(() => clearLiveState(rowId))
         .catch(() => {});
     },
     []
@@ -263,9 +270,38 @@ export default function InterviewView({ preset, onPresetConsumed }) {
     tick();
   }, [presentFinalReport]);
 
+  // Every payload the engine sends carries the transcript so far, so the round
+  // is written to the database as it happens rather than only when it ends. If
+  // the tab or the server dies mid-interview, the history still shows the
+  // questions, answers and analysis that were already produced.
+  //
+  // Best effort, like the report write: a database failure must not interrupt an
+  // interview the candidate is in the middle of answering.
+  const persistRound = useCallback(
+    (payload) => {
+      const rowId = interviewRowRef.current;
+      if (!rowId || !payload || !user) return;
+      saveTranscript(rowId, payload.transcript)
+        .then(() =>
+          saveLiveState(rowId, {
+            sessionId: payload.sessionId,
+            stage: payload.stage && payload.stage.name,
+            stageIndex: payload.stage && payload.stage.index,
+            pendingQuestion: payload.question ? payload.question.text : '',
+            pendingFollowUp: Boolean(payload.question && payload.question.isFollowUp),
+            stageProgress: payload.stageProgress || {},
+            turnsWritten: turnRowsFromTranscript(payload.transcript).length,
+          })
+        )
+        .catch(() => {});
+    },
+    [user]
+  );
+
   const presentReply = useCallback(
     (payload) => {
       setError('');
+      persistRound(payload);
       if (payload.state === 'question' || payload.state === 'follow_up') {
         const isFu = payload.state === 'follow_up' || (payload.question && payload.question.isFollowUp);
         if (payload.feedback) append(KIND.feedback(payload.feedback, 'Judge feedback'));
@@ -299,7 +335,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         presentFinalReport(payload);
       }
     },
-    [append, speak, pollAnalysis, presentFinalReport]
+    [append, speak, pollAnalysis, presentFinalReport, persistRound]
   );
 
   const askQuestion = useCallback(
@@ -314,35 +350,55 @@ export default function InterviewView({ preset, onPresetConsumed }) {
     [append, speak]
   );
 
+  // The transcript, stored as rows in the database, back into the on-screen
+  // entries. This is the same replay the engine's own transcript used to drive,
+  // except it reads from `interview_turns`, so a round reopens with its history
+  // intact even when the engine no longer holds the session.
+  const entriesFromTurns = useCallback((turns, revealJudges) => {
+    const out = [];
+    for (const t of turns) {
+      // Judged turns are stored from the first answer onwards, but they stay
+      // hidden until the round ends. Reopening a live round must not leak them.
+      if (t.kind === 'judge' && !revealJudges) continue;
+      if (t.kind === 'question') {
+        out.push(t.is_follow_up ? KIND.aiFu('follow-up', '#' + t.text) : KIND.ai(stageLabel({ name: t.stage }), '#' + t.text));
+      } else if (t.kind === 'answer') {
+        out.push(KIND.me(t.text));
+      } else if (t.kind === 'clarify') {
+        const d = t.detail || {};
+        out.push(KIND.me(d.candidate_question || ''));
+        out.push(KIND.aiFu('interviewer · clarification', d.interviewer_answer || ''));
+      } else if (t.kind === 'judge') {
+        const d = t.detail || {};
+        out.push(KIND.feedback({ verdict: d.verdict, summary: d.summary, dimension_scores: d.dimension_scores, checklist_hits: d.checklist_hits, green_flags_hit: d.green_flags_hit, red_flags_hit: d.red_flags_hit }, 'Judge · ' + t.stage));
+      } else if (t.kind === 'stage_verdict') {
+        const v = (t.detail && t.detail.verdict) || {};
+        out.push(KIND.banner(`<b>Stage complete: ${esc(t.stage)}.</b> ${verdictHtml(v.stage_verdict)}<br>${esc(v.summary || '')}`));
+      }
+    }
+    return out;
+  }, []);
+
   const startFlow = useCallback(
     (payload, fromResume) => {
       const ref = payload.sessionId;
       setSessionId(ref);
-      setMode(payload.mode || mode);
       setCandidateId((payload.candidate && payload.candidate.id) || null);
       setEntries([]);
       setReport(null);
       if (fromResume && Array.isArray(payload.transcript)) {
-        setEntries(
-          payload.transcript.map((e) => {
-            if (e.type === 'question')
-              return e.isFollowUp ? KIND.aiFu('follow-up', '#' + e.text) : KIND.ai(stageLabel({ name: e.stage }), '#' + e.text);
-            if (e.type === 'clarify')
-              return [KIND.me(e.candidateQuestion), KIND.aiFu('interviewer · clarification', e.interviewerAnswer || '')].flat();
-            if (e.type === 'answer') return KIND.me(e.text);
-            if (e.type === 'judge') return KIND.feedback(e, 'Judge · ' + e.stage);
-            if (e.type === 'stage_verdict') {
-              const v = e.verdict || {};
-              return KIND.banner(`<b>Stage complete: ${esc(e.stage)}.</b> ${verdictHtml(v.stage_verdict)}<br>${esc(v.summary || '')}`);
-            }
-            return [];
-          }).flat(2)
-        );
+        // A round reopens with its questions and answers intact and the judge
+        // still withheld, because the round has not ended yet.
+        const reveal = payload.state === 'final_report';
+        setEntries(entriesFromTurns(turnRowsFromTranscript(payload.transcript), reveal));
       }
+      // Persist on open too, so a round the engine resumed also refreshes the
+      // rows the browser is about to render.
+      persistRound(payload);
       askQuestion(payload);
       setPhase('session');
     },
-    [askQuestion, mode]
+    [askQuestion, entriesFromTurns, persistRound]
   );
 
   const submitAnswer = useCallback(
@@ -494,17 +550,20 @@ export default function InterviewView({ preset, onPresetConsumed }) {
 
   // Declared after startMedia so its dependency array never reads it before
   // initialization.
-  const start = useCallback(async () => {
+  const start = useCallback(async (overrides = {}) => {
     setError('');
     setBusy(true);
     // The profile is the source of truth for who is interviewing and for what.
     // The setup wizard does not ask again, so the fields this view still holds
     // start empty and fall back to the profile.
+    //
+    // Overrides exist for the preset auto-start: that path calls `start` in the
+    // same tick as setStageSel, so the state this closure captured is still the
+    // previous render's. Reading stageSel there would send an empty stage.
     const body = {
-      mode,
-      stage: stageSel,
-      track: trackId,
-      feedback,
+      mode: 'mock',
+      stage: overrides.stage || stageSel,
+      track: overrides.track || trackId,
       targetRole: (targetRole.trim() || profile?.target_role || '').trim(),
       resume: (resume.trim() || profile?.resume_text || '').trim(),
     };
@@ -526,14 +585,18 @@ export default function InterviewView({ preset, onPresetConsumed }) {
       if (user) {
         createInterviewRow({
           sessionId: d.sessionId,
-          mode,
-          stage: mode === 'practice' ? stageSel : null,
-          feedbackMode: feedback,
+          mode: 'mock',
+          // The server response is the source of truth: the preset auto-start
+          // path reaches here before stageSel's state update has rendered.
+          stage: (d.stage && d.stage.name) || overrides.stage || stageSel,
           voiceMode: voiceModeRef.current,
           targetRole: body.targetRole,
         })
           .then((row) => {
             interviewRowRef.current = row ? row.id : null;
+            // The opening question arrived before this row existed, so the first
+            // turn has to be written once the history row is in hand.
+            if (row) persistRound(d);
           })
           .catch((err) => setError('Interview started, but it could not be added to your history: ' + err.message));
       }
@@ -543,7 +606,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
       setBusy(false);
     }
   }, [
-    mode, stageSel, trackId, feedback, candidateId, targetRole, resume,
+    stageSel, trackId, candidateId, targetRole, resume,
     profile, user, keys.llm, keys.stt, startFlow, startMedia,
   ]);
 
@@ -577,15 +640,13 @@ export default function InterviewView({ preset, onPresetConsumed }) {
     // A preset can survive a re-render, so consume each one exactly once.
     const key =
       preset.sessionId ||
-      [preset.mode, preset.trackId, preset.stage, preset.candidateId, preset.autoStart, preset.run].join('|');
+      [preset.trackId, preset.stage, preset.candidateId, preset.autoStart, preset.run].join('|');
     if (presetHandledRef.current === key) return;
     presetHandledRef.current = key;
     (async () => {
-      if (preset.mode) setMode(preset.mode);
       if (preset.trackId) await applyTrack(preset.trackId);
       if (preset.stage) setStageSel(preset.stage);
       if (preset.candidateId) setCandidateId(preset.candidateId);
-      if (preset.feedback) setFeedback(preset.feedback);
       if (preset.targetRole != null) setTargetRole(preset.targetRole);
       if (preset.resume != null) setResume(preset.resume);
       if (preset.voiceMode != null) setVoiceMode(preset.voiceMode);
@@ -607,7 +668,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
       // The practice setup wizard collects every option before navigating here,
       // so it can hand over a finished configuration and start immediately
       // rather than showing the same form a second time.
-      if (preset.autoStart || preset.run) await start();
+      if (preset.autoStart || preset.run) await start({ stage: preset.stage, track: preset.trackId });
     })();
   }, [preset, ready, applyTrack, startFlow, startMedia, onPresetConsumed, setVoiceMode, start]);
 
@@ -652,11 +713,6 @@ export default function InterviewView({ preset, onPresetConsumed }) {
 
   const activeCandidate = candidates.find((c) => c.id === candidateId) || null;
 
-  const mockDesc = useMemo(() => {
-    const names = stages.filter((s) => s.name !== 'greeting').map((s) => s.name.replace(/_/g, ' '));
-    return names.length ? names.join(' → ') + '. Feedback withheld until stage boundaries.' : '';
-  }, [stages]);
-
   return (
     <div className="space-y-4">
       {error && (
@@ -680,25 +736,14 @@ export default function InterviewView({ preset, onPresetConsumed }) {
             <p className="text-xs text-muted-foreground">{tracks.find((t) => t.id === trackId)?.description || ''}</p>
           </div>
 
-          <div className="mb-4">
-            <Seg
-              value={mode}
-              onChange={setMode}
-              options={[
-                { value: 'mock', label: 'Full mock interview' },
-                { value: 'practice', label: 'Practice rounds' },
-              ]}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              {mode === 'mock'
-                ? mockDesc
-                : 'One stage per round. The candidate profile carries across rounds, and a final debrief runs once every gradeable stage is covered.'}
-            </p>
-          </div>
+          <p className="mb-4 text-xs text-muted-foreground">
+            One stage per round. The candidate profile carries across rounds, and a final debrief runs once
+            every gradeable stage is covered.
+          </p>
 
           <div className="mb-4 grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>Candidate (practice rounds)</Label>
+              <Label>Candidate</Label>
               <Select value={candidateId} onChange={(e) => setCandidateId(e.target.value)}>
                 <option value="">New candidate</option>
                 {candidates
@@ -712,8 +757,8 @@ export default function InterviewView({ preset, onPresetConsumed }) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Stage (practice mode only)</Label>
-              <Select value={stageSel} onChange={(e) => setStageSel(e.target.value)} disabled={mode === 'mock'}>
+              <Label>Stage</Label>
+              <Select value={stageSel} onChange={(e) => setStageSel(e.target.value)}>
                 {stages
                   .filter((s) => s.name !== 'greeting')
                   .map((s) => (
@@ -727,22 +772,9 @@ export default function InterviewView({ preset, onPresetConsumed }) {
 
           {!activeCandidate ? (
             <>
-              <div className="mb-3 grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>Target role / level (optional)</Label>
-                  <Input value={targetRole} onChange={(e) => setTargetRole(e.target.value)} placeholder="e.g. Senior PM, B2B SaaS" />
-                </div>
-                <div className="space-y-1">
-                  <Label>Feedback mode</Label>
-                  <Seg
-                    value={feedback}
-                    onChange={setFeedback}
-                    options={[
-                      { value: 'full', label: 'Learn' },
-                      { value: 'simulation', label: 'Simulation' },
-                    ]}
-                  />
-                </div>
+              <div className="mb-3 space-y-1">
+                <Label>Target role / level (optional)</Label>
+                <Input value={targetRole} onChange={(e) => setTargetRole(e.target.value)} placeholder="e.g. Senior PM, B2B SaaS" />
               </div>
               <div className="mb-3 space-y-1">
                 <Label>Paste your resume / background (optional)</Label>
@@ -827,7 +859,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
                     <option value="">— pick a session —</option>
                     {resumes.map((s) => (
                       <option key={s.sessionId} value={s.sessionId}>
-                        {s.mode} · {s.practiceStage || 'full mock'} · {s.answers} answers · {new Date(s.startedAt).toLocaleString()} · {trackLabel(s.track)}
+                        {s.practiceStage || 'greeting'} · {s.answers} answers · {new Date(s.startedAt).toLocaleString()} · {trackLabel(s.track)}
                       </option>
                     ))}
                   </Select>
