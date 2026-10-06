@@ -2,6 +2,7 @@ import React from 'react';
 import Shell from './components/Shell';
 import { CANDIDATE_NAV } from './lib/nav';
 import { matchPath, navigate, usePath } from './lib/route';
+import { readLocal } from './lib/utils';
 import { AuthProvider, useAuth } from './app/authContext';
 import { PrepProvider, usePrep } from './app/prepContext';
 
@@ -55,11 +56,12 @@ function InterviewRoute() {
   // /app/practice/interview?session=<id>. Folding that into the preset here
   // keeps the interview view reading from one place.
   React.useEffect(() => {
-    if (!sessionId) return;
-    // Guarded on the id itself: spreading `preset` back into it would build a
-    // new object every run and re-trigger this effect forever.
-    if (preset && preset.sessionId === sessionId) return;
-    setPreset({ ...(preset || {}), sessionId, autoStart: true });
+    // A reload of the practice URL (no ?session=) falls back to the round that
+    // was running before, so the candidate is not stranded on the setup screen.
+    const remembered = (!sessionId ? readLocal('active-session', '') : '') || sessionId;
+    if (!remembered) return;
+    if (preset && preset.sessionId === remembered) return;
+    setPreset({ ...(preset || {}), sessionId: remembered, autoStart: true });
   }, [sessionId, preset, setPreset]);
 
   return <InterviewView preset={preset} onPresetConsumed={consumePreset} />;

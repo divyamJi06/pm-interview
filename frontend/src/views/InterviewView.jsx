@@ -117,6 +117,13 @@ export default function InterviewView({ preset, onPresetConsumed }) {
     return key ? '?provider=cohere' + session : session ? '?sessionId=' + encodeURIComponent(sessionIdRef.current) : '';
   }, [keys.stt, keys.llm]);
 
+  const refreshStt = useCallback(async () => {
+    try {
+      const d = await api('GET', '/api/transcribe/config' + sttQuery());
+      setStt({ enabled: !!d.enabled, provider: d.provider || '' });
+    } catch (_) {}
+  }, [sttQuery]);
+
   const loadTracks = useCallback(async () => {
     try {
       const d = await api('GET', '/api/tracks');
@@ -155,21 +162,20 @@ export default function InterviewView({ preset, onPresetConsumed }) {
       const list = await loadTracks();
       if (list.length) await applyTrack(list[0].id);
       try {
-        const [ttsC, sttC, sess] = await Promise.all([
+        const [ttsC, sess] = await Promise.all([
           api('GET', '/api/tts/config'),
-          api('GET', '/api/transcribe/config' + sttQuery()),
           api('GET', '/api/sessions'),
         ]);
         setTtsProv(ttsC.provider || '');
         speaker.current.engine = ttsC.engine === 'server' ? 'server' : 'browser';
-        setStt({ enabled: !!sttC.enabled, provider: sttC.provider || '' });
+        await refreshStt();
         setResumes((sess.sessions || []).filter((x) => x.awaiting === 'answer'));
       } catch (_) {}
       // Presets are handled separately, once the voice config is known.
       setReady(true);
     })();
     loadCandidates();
-  }, [loadTracks, applyTrack, loadCandidates, sttQuery]);
+  }, [loadTracks, applyTrack, loadCandidates, refreshStt]);
 
   const speakerRef = speaker.current;
 
@@ -217,6 +223,12 @@ export default function InterviewView({ preset, onPresetConsumed }) {
     }
   }, [voiceMode, stt.enabled, keys.llm, keys.stt]);
 
+  // A key added in Settings after this view mounted must re-ask the server: the
+  // first config probe ran before the key existed, and `stt` is stale.
+  useEffect(() => {
+    if (keys.llm || keys.stt) refreshStt();
+  }, [keys.llm, keys.stt, refreshStt]);
+
   const speak = useCallback(
     async (text) => {
       if (!text) return;
@@ -235,6 +247,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
 
   const presentFinalReport = useCallback(
     (payload) => {
+      writeLocal('active-session', '');
       setPhase('report');
       setReport(payload);
       // Writing the history is a side effect of finishing, not part of showing
@@ -390,6 +403,9 @@ export default function InterviewView({ preset, onPresetConsumed }) {
     (payload, fromResume) => {
       const ref = payload.sessionId;
       setSessionId(ref);
+      // Remember the running round so a page reload returns to the practice
+      // instead of dumping the candidate on the bare setup screen.
+      writeLocal('active-session', ref);
       setCandidateId((payload.candidate && payload.candidate.id) || null);
       setEntries([]);
       setReport(null);
@@ -417,6 +433,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         const d = await api('POST', '/api/answer', {
           sessionId: sessionIdRef.current,
           answer: text,
+          apiKey: keys.llm || '',
         });
         presentReply(d);
       } catch (err) {
@@ -425,7 +442,7 @@ export default function InterviewView({ preset, onPresetConsumed }) {
         setBusy(false);
       }
     },
-    [append, busy, presentReply]
+    [append, busy, presentReply, keys.llm]
   );
 
   const send = useCallback(() => {
