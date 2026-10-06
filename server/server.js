@@ -570,7 +570,15 @@ function createServer({
     // the handlers that own something, so they can check it belongs to them.
     let auth = null;
     if (url.pathname.startsWith('/api/')) {
-      auth = await authVerifier.verify(bearerFrom(req));
+      // A verifier failure (e.g. Supabase unreachable) must never kill the
+      // socket before the response: the browser would see a bare 500 and the
+      // recording the candidate just made would be gone. Surface it as a
+      // retryable error instead.
+      auth = await authVerifier.verify(bearerFrom(req)).catch((err) => ({
+        ok: false,
+        status: 503,
+        error: 'Could not verify your session. Try again in a moment.',
+      }));
       if (!auth.ok) return json(res, auth.status, { ok: false, error: auth.error, signIn: auth.status === 401 });
     }
 

@@ -132,6 +132,47 @@ test('an unconfigured verifier reports enforcement off', async () => {
   assert.deepEqual(verifier.state(), { configured: false, enforced: false, cacheSize: 0 });
 });
 
+test('a Supabase network failure reads as a retryable 503, not a throw', async () => {
+  const verifier = createUserVerifier({
+    url: 'https://project.supabase.co',
+    anonKey: 'anon-test',
+    fetchImpl: async () => {
+      throw new Error('ECONNREFUSED');
+    },
+  });
+
+  const result = await verifier.verify('a-real-token');
+
+  assert.deepEqual(result, { ok: false, status: 503, error: 'Could not verify your session. Try again in a moment.' });
+});
+
+test('a verifier that rejects still yields a response, not a dead socket', async (t) => {
+  const mock = makeMockCallModel();
+  store.clearSessions();
+  const server = createServer({
+    verifier: {
+      configured: true,
+      async verify() {
+        throw new Error('boom');
+      },
+      state: () => ({ configured: true, enforced: true, cacheSize: 0 }),
+    },
+    callModel: mock.callModel,
+    config: loadStageOrder(),
+    rng: () => 0,
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => close(server));
+  const { port } = server.address();
+
+  const res = await get(`http://127.0.0.1:${port}`, '/api/sessions', 'any-token');
+
+  assert.equal(res.status, 503);
+  assert.equal(res.body.ok, false);
+  assert.match(res.body.error, /Try again/);
+});
+
 test('ownsSession trusts nobody when enforcement is off, and only the owner when on', () => {
   const session = { id: 's1', userId: 'user-a' };
 

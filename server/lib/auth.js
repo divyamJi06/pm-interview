@@ -76,10 +76,21 @@ function createUserVerifier({
   const cache = new Map();
 
   async function check(token) {
-    const res = await fetchImpl(`${base}/auth/v1/user`, {
-      method: 'GET',
-      headers: { apikey: key, authorization: `Bearer ${token}` },
-    });
+    let res;
+    try {
+      res = await fetchImpl(`${base}/auth/v1/user`, {
+        method: 'GET',
+        headers: { apikey: key, authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      // A network blip reaching Supabase must not take the request down with it.
+      // The route already treats anything other than 401/403 as "try again".
+      return {
+        ok: false,
+        status: 503,
+        error: 'Could not verify your session. Try again in a moment.',
+      };
+    }
     if (!res.ok) {
       // 401/403 mean the token is no good. Anything else is our problem talking
       // to Supabase, and must not be read as "signed out", or a Supabase outage
